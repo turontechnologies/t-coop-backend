@@ -52,3 +52,16 @@ a not-found (404), or an upstream failure like a failed Paystack transfer
 Configured centrally in `config/CorsConfig.java`, driven by the
 `FRONTEND_ORIGINS` env var — never add `@CrossOrigin` on individual
 controllers, it'll drift out of sync with the real allow-list.
+
+**Every new endpoint works automatically — nothing to remember per-route.**
+`SecurityConfig` already permits all `OPTIONS` requests platform-wide
+(`requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()`), which is what
+makes browser CORS preflights succeed for authenticated routes. This was a
+real bug once: a route that isn't in the `permitAll` list only fails on
+preflight if that blanket `OPTIONS` rule is ever narrowed or removed —
+preflight requests never carry the `Authorization` header, so Security
+would reject them with 401 before `CorsConfig` gets a chance to add the
+`Access-Control-Allow-Origin` header, and the browser reports it as a
+generic CORS failure with no useful server-side log. If CORS errors show
+up in the browser console for a route that works fine via curl/Thunder
+Client, check this rule first.

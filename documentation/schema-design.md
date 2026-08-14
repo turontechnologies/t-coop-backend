@@ -21,6 +21,85 @@ Implemented as [`V1__init_schema.sql`](../src/main/resources/db/migration/V1__in
 - Join/log tables use a surrogate `BIGINT IDENTITY` since nothing ever
   references them by ID from outside.
 
+## Entity relationship diagram
+
+```mermaid
+erDiagram
+    COOPERATIVES ||--o{ MEMBERS : "employs/enrolls"
+    COOPERATIVES ||--o{ SAVINGS_TYPES : defines
+    COOPERATIVES ||--o{ LOAN_TYPES : defines
+    COOPERATIVES ||--o{ SUBSCRIPTION_PAYMENTS : pays
+    COOPERATIVES ||--o{ NOTICE_TARGET_COOPERATIVES : "targeted by"
+    MEMBERS ||--o{ SAVINGS_RECORDS : owns
+    MEMBERS ||--o{ SAVINGS_REQUESTS : requests
+    MEMBERS ||--o{ LOAN_RECORDS : owns
+    MEMBERS ||--o{ NOTICES : authors
+    MEMBERS ||--o{ NOTICE_REPLIES : writes
+    MEMBERS ||--o{ NOTICE_READ_RECEIPTS : reads
+    MEMBERS ||--o{ AUDIT_LOG : "acts as"
+    MEMBERS ||--o{ PASSWORD_RESET_TOKENS : requests
+    SAVINGS_TYPES ||--o{ SAVINGS_RECORDS : categorizes
+    SAVINGS_TYPES ||--o{ SAVINGS_REQUESTS : categorizes
+    LOAN_TYPES ||--o{ LOAN_RECORDS : categorizes
+    NOTICES ||--o{ NOTICE_TARGET_COOPERATIVES : "broadcast to"
+    NOTICES ||--o{ NOTICE_REPLIES : has
+    NOTICES ||--o{ NOTICE_READ_RECEIPTS : has
+
+    COOPERATIVES {
+        nvarchar id PK "COOP-0001"
+        nvarchar name
+        nvarchar currency
+        decimal withdrawal_fee_percent
+        nvarchar status
+    }
+    MEMBERS {
+        nvarchar id PK "AD-0001 / MB-0001"
+        nvarchar cooperative_id FK "null for super_admin"
+        nvarchar role "super_admin / admin / member"
+        nvarchar password_hash
+        nvarchar email
+        nvarchar status
+    }
+    SAVINGS_TYPES {
+        uniqueidentifier id PK
+        nvarchar cooperative_id FK
+        nvarchar name
+    }
+    SAVINGS_RECORDS {
+        uniqueidentifier id PK
+        nvarchar cooperative_id FK
+        nvarchar member_id FK
+        uniqueidentifier savings_type_id FK
+        decimal amount
+        decimal balance_after
+        nvarchar status
+        datetime2 created_at
+    }
+    LOAN_TYPES {
+        uniqueidentifier id PK
+        nvarchar cooperative_id FK
+        nvarchar name
+    }
+    LOAN_RECORDS {
+        uniqueidentifier id PK
+        nvarchar cooperative_id FK
+        nvarchar member_id FK
+        uniqueidentifier loan_type_id FK
+        decimal amount
+        nvarchar status "Pending/Active/Completed/Rejected"
+        datetime2 created_at
+    }
+    AUDIT_LOG {
+        bigint id PK
+        nvarchar actor_id FK
+        nvarchar actor_role
+        nvarchar module
+        nvarchar action
+        nvarchar status
+        datetime2 created_at
+    }
+```
+
 ## Tables
 
 ### `members`

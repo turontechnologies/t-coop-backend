@@ -82,17 +82,22 @@ to live before this backend existed.
 src/main/java/com/turontechnologies/tcoop/
   TCoopBackendApplication.java   entry point
   config/                        cross-cutting config (CORS, Cloudinary, security, …)
-  auth/                          JWT issuing/validation, login, /auth/me
+  auth/                          JWT issuing/validation, login, /auth/me, /auth/logout
   member/                        Member entity + repository
+  cooperative/                   Cooperative entity + repository (read-only so far)
+  savings/                       SavingsType/SavingsRecord entities + repositories
+  loan/                          LoanType/LoanRecord entities + repositories
+  audit/                         AuditLog entity + service — every login/logout/mutation
+  dashboard/                     GET /api/v1/dashboard/summary (role-aware aggregates)
   health/                        liveness check
   upload/                        Cloudinary-backed file uploads (POST /api/v1/uploads)
-  (one package per domain area goes here as it's built: cooperative,
-   savings, loan, notice, …)
+  (one package per domain area goes here as it's built: notice, …)
 src/main/resources/
   application.yml                config (reads DB creds etc. from env vars)
   db/migration/                  Flyway migration scripts
     V1__init_schema.sql            full baseline schema
     V2__seed_demo_users.sql        SA-0001/AD-0001/MB-0001 demo accounts
+    V3__seed_dashboard_data.sql    savings/loan types + records so the dashboard has real numbers
 Dockerfile                       multi-stage build (Maven -> slim JRE)
 docker-compose.yml                app + its own SQL Server, for local dev
 ```
@@ -110,6 +115,8 @@ docker-compose.yml                app + its own SQL Server, for local dev
 - [`documentation/deployment.md`](documentation/deployment.md) — the local
   Docker stack, the temporary public tunnel, and where real Azure
   deployment fits in.
+- [`documentation/flows.md`](documentation/flows.md) — Mermaid sequence
+  diagrams for the auth and dashboard-summary request flows.
 
 ## Status
 
@@ -122,25 +129,33 @@ docker-compose.yml                app + its own SQL Server, for local dev
 - [x] Cloudinary upload endpoint (`POST /api/v1/uploads`), mirroring the
       frontend's existing `/api/upload` route
 - [x] Auth — `POST /api/v1/auth/login` (JWT), `GET /api/v1/auth/me`,
-      bcrypt password hashing, three seeded demo accounts matching the
-      frontend's mock users
+      `POST /api/v1/auth/logout`, bcrypt password hashing, three seeded
+      demo accounts matching the frontend's mock users, every login/logout
+      audit-logged (`audit_log` table)
+- [x] Dashboard — `GET /api/v1/dashboard/summary`, role-aware (platform-wide
+      for `super_admin`, co-op-scoped for `admin`, personal for `member`),
+      cards + recentActivity computed from real `savings_records` /
+      `loan_records`; see `documentation/flows.md` for what's real vs.
+      illustrative (the hourly chart and dividends figure)
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a Cloudflare quick tunnel while Azure access is pending
       — see `documentation/deployment.md` for the honest limits of that
+- [x] Frontend wired to real login/me/logout and the dashboard summary
+      endpoint (behind `NEXT_PUBLIC_USE_MOCK_*` flags on the frontend, so
+      it can fall back to mock data if the tunnel is down)
 - [ ] Azure SQL instance actually provisioned (blocked on Azure login —
       see the team for the connection details once it exists)
 - [ ] Real Azure deployment (App Service or similar) — the Docker tunnel
       is a stopgap, not the destination
-- [ ] Real domain endpoints (co-operatives, members, savings, loans,
+- [ ] Real domain endpoints (co-operatives, savings/loan write paths,
       notices, subscriptions) — one area at a time, per
       `documentation/api-contracts.md`
 
-**The frontend hasn't been switched over to anything here yet.** It still
-uses its own Cloudinary keys and its own `/api/upload` route. Once the
+**Uploads are the one thing not yet cut over.** The frontend still uses its
+own Cloudinary keys and its own `/api/upload` route for avatars. Once the
 backend has a stable URL (real Azure deployment, not the tunnel), the
 cutover is: point the frontend's upload call at
 `POST {this API's URL}/api/v1/uploads`, remove `CLOUDINARY_*` from the
 frontend's `.env.local` / Vercel project settings, delete
 `src/app/api/upload/route.ts`. Do that in one step, not gradually, so
-uploads are never broken in between. Same one-step-cutover rule applies to
-every other feature as its real endpoint goes live — auth included.
+uploads are never broken in between.

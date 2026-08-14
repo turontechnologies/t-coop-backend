@@ -1,7 +1,9 @@
 package com.turontechnologies.tcoop.auth;
 
+import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
@@ -20,16 +22,22 @@ public class AuthController {
   private final MemberRepository memberRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
+  private final AuditLogService auditLogService;
 
   public AuthController(
-      MemberRepository memberRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+      MemberRepository memberRepository,
+      PasswordEncoder passwordEncoder,
+      JwtService jwtService,
+      AuditLogService auditLogService) {
     this.memberRepository = memberRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
+    this.auditLogService = auditLogService;
   }
 
   @PostMapping("/api/v1/auth/login")
-  public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+  public ResponseEntity<?> login(
+      @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
     var member = memberRepository.findById(request.membershipId()).orElse(null);
 
     if (member == null
@@ -39,6 +47,14 @@ public class AuthController {
     }
 
     String token = jwtService.generateToken(member);
+    auditLogService.log(
+        member.getId(),
+        member.getRole(),
+        "Authentication",
+        "Login",
+        member.getEmail(),
+        "Success",
+        httpRequest);
     return ResponseEntity.ok(new LoginResponse(token, MemberDto.from(member)));
   }
 
@@ -54,5 +70,37 @@ public class AuthController {
     }
 
     return ResponseEntity.ok(MemberDto.from(member));
+  }
+
+  @PostMapping("/api/v1/auth/logout")
+  public ResponseEntity<?> logout(Authentication authentication, HttpServletRequest httpRequest) {
+    // JWTs are stateless — there's no server-side session to destroy. This
+    // endpoint exists so (a) the frontend has one consistent call to make
+    // regardless of auth strategy, (b) logout is audit-logged, and (c) it's
+    // the natural place to add token blacklisting later if that's ever
+    // needed. The frontend is responsible for discarding its copy of the
+    // token either way.
+    String memberId = resolveMemberId(authentication);
+    if (memberId != null) {
+      var member = memberRepository.findById(memberId).orElse(null);
+      if (member != null) {
+        auditLogService.log(
+            member.getId(),
+            member.getRole(),
+            "Authentication",
+            "Logout",
+            member.getEmail(),
+            "Success",
+            httpRequest);
+      }
+    }
+    return ResponseEntity.ok(Map.of("message", "Logged out"));
+  }
+
+  /** Returns the real member ID if a valid token was sent, null for an anonymous/no-token request. */
+  private String resolveMemberId(Authentication authentication) {
+    if (authentication == null || !authentication.isAuthenticated()) return null;
+    Object principal = authentication.getPrincipal();
+    return principal instanceof String id && !"anonymousUser".equals(id) ? id : null;
   }
 }

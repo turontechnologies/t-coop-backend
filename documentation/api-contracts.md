@@ -472,7 +472,7 @@ Role-aware; scope to the caller's co-op for `admin`/`member`, platform-wide for 
 }
 ```
 
-This is currently 100% hardcoded fake data on the frontend with no connection to real records — needs to be built from scratch as real aggregation queries over savings/loans/members.
+**Built.** Cards and `recentActivity` are real aggregation queries over `savings_records`/`loan_records` (`DashboardController`/`DashboardService`). The `chart` and any `Dividends` figure have no dedicated table behind them, so they're derived from the real totals rather than invented outright — see `documentation/flows.md` for exactly what's real vs. illustrative.
 
 ---
 

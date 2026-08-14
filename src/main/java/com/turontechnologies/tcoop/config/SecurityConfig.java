@@ -4,6 +4,7 @@ import com.turontechnologies.tcoop.auth.JwtAuthenticationFilter;
 import com.turontechnologies.tcoop.auth.JwtService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -29,7 +30,14 @@ public class SecurityConfig {
         .exceptionHandling(handling -> handling.authenticationEntryPoint(authEntryPoint))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/api/health", "/api/v1/auth/**", "/error")
+                auth
+                    // CORS preflight requests never carry the Authorization header, so they
+                    // must be let through Security before it ever asks "authenticated?" —
+                    // otherwise the browser never sees the Access-Control-Allow-Origin header
+                    // that the WebMvcConfigurer-based CorsConfig would have added downstream.
+                    .requestMatchers(HttpMethod.OPTIONS, "/**")
+                    .permitAll()
+                    .requestMatchers("/api/health", "/api/v1/auth/**", "/error")
                     .permitAll()
                     .anyRequest()
                     .authenticated())
