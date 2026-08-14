@@ -1,0 +1,59 @@
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: t-coop-local-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${LOCAL_DB_SA_PASSWORD:-Local-Dev-Passw0rd!}"
+    ports:
+      - "14330:1433"
+    volumes:
+      - t-coop-local-db-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint:
+      - /opt/mssql-tools18/bin/sqlcmd
+      - -S
+      - db
+      - -U
+      - sa
+      - -P
+      - "${LOCAL_DB_SA_PASSWORD:-Local-Dev-Passw0rd!}"
+      - -C
+      - -Q
+      - "IF DB_ID('tcoopdb') IS NULL CREATE DATABASE tcoopdb"
+
+  app:
+    build: .
+    container_name: t-coop-backend
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      # Talks to `db` by its service name, not localhost — they're on the
+      # same Docker network. Port 1433 (the container's internal port),
+      # not 14330 (the host-mapped port used above).
+      DB_URL: "jdbc:sqlserver://db:1433;database=tcoopdb;encrypt=true;trustServerCertificate=true;loginTimeout=30"
+      DB_USERNAME: "sa"
+      DB_PASSWORD: "${LOCAL_DB_SA_PASSWORD:-Local-Dev-Passw0rd!}"
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRATION_MINUTES: "${JWT_EXPIRATION_MINUTES:-60}"
+      FRONTEND_ORIGINS: "${FRONTEND_ORIGINS:-http://localhost:3000}"
+      CLOUDINARY_CLOUD_NAME: "${CLOUDINARY_CLOUD_NAME:-}"
+      CLOUDINARY_API_KEY: "${CLOUDINARY_API_KEY:-}"
+      CLOUDINARY_API_SECRET: "${CLOUDINARY_API_SECRET:-}"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  t-coop-local-db-data:

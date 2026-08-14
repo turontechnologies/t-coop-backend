@@ -30,7 +30,7 @@ public class UploadController {
     this.cloudinary = cloudinary;
   }
 
-  @PostMapping(value = "/api/uploads", consumes = "multipart/form-data")
+  @PostMapping(value = "/api/v1/uploads", consumes = "multipart/form-data")
   public ResponseEntity<Map<String, String>> upload(@RequestParam("file") MultipartFile file) {
     if (file.isEmpty()) {
       return ResponseEntity.badRequest().body(Map.of("error", "No file provided"));
