@@ -73,14 +73,11 @@ public class ProfileController {
         request.accountName());
     memberRepository.save(member);
 
+    // module/action/resource here must match the frontend's fixed
+    // AuditModule/AuditAction enums (src/lib/audit-log-data.ts) exactly —
+    // an unrecognized value has no icon mapping and breaks the Logs tab.
     auditLogService.log(
-        member.getId(),
-        member.getRole(),
-        "Profile",
-        "Update Profile",
-        member.getEmail(),
-        "Success",
-        httpRequest);
+        member.getId(), member.getRole(), "Settings", "Update", "Profile", "Success", httpRequest);
 
     return ResponseEntity.ok(ProfileDto.from(member));
   }

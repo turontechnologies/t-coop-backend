@@ -207,7 +207,7 @@ Same shape as one list item, plus `savingsByType` and `loansByType` breakdowns:
 
 Same shape as request body (minus `membershipId`, which is fixed). Returns the updated record.
 
-**Built.** `ProfileController`/`ProfileDto`/`ProfileUpdateRequest` — server-side validation mirrors the frontend's zod schema exactly (10-digit account number, 11-digit NIN, valid email, etc.), so a request that passes client-side validation never fails here. GET is a single `findById` (sub-100ms locally). Every update is audit-logged (`Profile` / `Update Profile`). Validation failures return `{"error": "combined human-readable message"}` via the new `GlobalExceptionHandler` — see api-conventions.md.
+**Built.** `ProfileController`/`ProfileDto`/`ProfileUpdateRequest` — server-side validation mirrors the frontend's zod schema exactly (10-digit account number, 11-digit NIN, valid email, etc.), so a request that passes client-side validation never fails here. GET is a single `findById` (sub-100ms locally). Every update is audit-logged (module `Settings` / action `Update` / resource `Profile` — matching the frontend's fixed audit-log enums). Validation failures return `{"error": "combined human-readable message"}` via the new `GlobalExceptionHandler` — see api-conventions.md.
 
 ---
 
@@ -534,6 +534,31 @@ field: file (png/jpeg/webp, max 5MB)
 ```
 
 Currently only used for avatars — should also replace the base64 storage used today for savings receipts, loan-guarantor documents, and notice attachments (all currently stored as base64 data URLs directly in records, which won't scale).
+
+---
+
+## 12. Audit log (super admin only)
+
+### `GET /audit-log`
+
+```json
+[
+  {
+    "id": "string",
+    "date": "iso-datetime",
+    "activityBy": "string",
+    "role": "Super Administrator|Administrator|Member",
+    "module": "Authentication|Co-operatives|Members|Savings|Loans|Subscriptions|Notices|Settings|Users",
+    "action": "Login|Logout|Create|Update|Delete|Approve|Decline|Payment",
+    "resource": "string",
+    "status": "Success|Info|Warning|Failed",
+    "location": "string",
+    "ipAddress": "string"
+  }
+]
+```
+
+**Built.** `AuditLogController` — returns the latest 200 entries platform-wide, newest first. 403s for anyone whose role isn't `super_admin` (checked server-side, not just hidden in the UI). `module`/`action`/`resource` values written by every audit-logging call site **must** exactly match the frontend's fixed `AuditModule`/`AuditAction` enums (`t-coop-app/src/lib/audit-log-data.ts`) — an unrecognized value has no icon mapping on the frontend. `location` is resolved server-side from `ipAddress` via a free geo-IP lookup (ipwho.is), cached in memory per IP; this only runs on this read endpoint, never on the write path (login/logout/profile update stay fast regardless of geo-lookup latency or failures). See `documentation/flows.md` for the full request flow and `documentation/api-conventions.md` for why every log call site needs to stay in sync with the frontend's enums.
 
 ---
 

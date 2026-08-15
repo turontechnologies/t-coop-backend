@@ -1,8 +1,8 @@
 # Request flows
 
 Sequence diagrams for the flows the frontend now calls for real:
-authentication (login/me/logout), the dashboard summary, and profile
-view/edit.
+authentication (login/me/logout), the dashboard summary, profile
+view/edit, and the audit log.
 
 ## Auth flow
 
@@ -127,7 +127,7 @@ sequenceDiagram
     alt valid
         B->>B: @Valid Jakarta Bean Validation (mirrors the frontend's zod schema)
         B->>DB: UPDATE members SET ... WHERE id = :memberId
-        B->>DB: INSERT audit_log (Profile / Update Profile / Success)
+        B->>DB: INSERT audit_log (Settings / Update / Profile / Success)
         B-->>F: 200 { updated record }
         F-->>U: toast "Profile updated successfully"
     else invalid
@@ -142,3 +142,41 @@ frontend merges its edits onto the last-fetched full record before
 sending the `PATCH`, so fields that tab doesn't show are never touched.
 The `PATCH` request/validation on the backend is identical either way;
 it doesn't know or care which UI sent it.
+
+## Audit log flow
+
+```mermaid
+sequenceDiagram
+    participant U as Browser (Next.js)
+    participant F as Frontend (Vercel)
+    participant B as Spring Boot backend
+    participant DB as Azure SQL / MSSQL
+    participant Geo as ipwho.is (free geo-IP)
+
+    Note over B,DB: Every audited action (login, logout, profile update, ...)\nwrites one row synchronously — no external calls on this path,\nso the action itself is never slowed down by audit logging.
+    B->>DB: INSERT audit_log (actor, module, action, resource, status, ip, created_at)
+
+    U->>F: Open /settings → Logs tab (super admin only)
+    F->>B: GET /api/v1/audit-log (Bearer token)
+    B->>B: resolve caller, reject with 403 unless role = super_admin
+    B->>DB: SELECT TOP 200 * FROM audit_log ORDER BY created_at DESC
+    B->>DB: SELECT members WHERE id IN (distinct actor_ids) — batch, avoids N+1
+    loop each distinct IP not already cached
+        B->>Geo: GET ipwho.is/{ip}
+        Geo-->>B: city, region, country (or failure — falls back to "Unknown")
+        B->>B: cache result in memory for the life of the process
+    end
+    B-->>F: 200 [{ id, date, activityBy, role, module, action,\nresource, status, location, ipAddress }, ...]
+    F-->>U: render table/cards, newest first
+```
+
+`module`/`action` values written anywhere in the backend **must** exactly
+match the frontend's fixed `AuditModule`/`AuditAction` enums
+(`t-coop-app/src/lib/audit-log-data.ts`) — this was a real bug once:
+historical rows written before `ProfileController` used the right values
+("Profile"/"Update Profile" instead of "Settings"/"Update") had no icon
+mapping on the frontend and crashed the entire Logs tab. Fixed both ways —
+the write side now uses the correct values, a migration corrected the
+existing bad rows, and the frontend now falls back to a neutral icon for
+any value it doesn't recognize instead of crashing, so a future mismatch
+degrades gracefully instead of taking the page down.

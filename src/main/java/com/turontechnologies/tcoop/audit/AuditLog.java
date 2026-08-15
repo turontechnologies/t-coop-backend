@@ -54,4 +54,40 @@ public class AuditLog {
     this.ipAddress = ipAddress;
     this.createdAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
   }
+
+  public Long getId() {
+    return id;
+  }
+
+  public String getActorId() {
+    return actorId;
+  }
+
+  public String getActorRole() {
+    return actorRole;
+  }
+
+  public String getModule() {
+    return module;
+  }
+
+  public String getAction() {
+    return action;
+  }
+
+  public String getResource() {
+    return resource;
+  }
+
+  public String getStatus() {
+    return status;
+  }
+
+  public String getIpAddress() {
+    return ipAddress;
+  }
+
+  public LocalDateTime getCreatedAt() {
+    return createdAt;
+  }
 }

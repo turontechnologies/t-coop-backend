@@ -87,7 +87,8 @@ src/main/java/com/turontechnologies/tcoop/
   cooperative/                   Cooperative entity + repository (read-only so far)
   savings/                       SavingsType/SavingsRecord entities + repositories
   loan/                          LoanType/LoanRecord entities + repositories
-  audit/                         AuditLog entity + service — every login/logout/mutation
+  audit/                         AuditLog entity/service/controller — every login/logout/
+                                  mutation, GET /api/v1/audit-log (super admin only)
   dashboard/                     GET /api/v1/dashboard/summary (role-aware aggregates)
   profile/                       GET/PATCH /api/v1/profile (self-service)
   common/                        GlobalExceptionHandler — {"error": "..."} for every endpoint
@@ -101,6 +102,7 @@ src/main/resources/
     V2__seed_demo_users.sql        SA-0001/AD-0001/MB-0001 demo accounts
     V3__seed_dashboard_data.sql    savings/loan types + records so the dashboard has real numbers
     V4__seed_member_profiles.sql   fills in demo accounts' profile fields (bank, NIN, address, …)
+    V5__fix_profile_audit_log_labels.sql   corrects historical audit_log rows to the right module/action
 Dockerfile                       multi-stage build (Maven -> slim JRE)
 docker-compose.yml                app + its own SQL Server, for local dev
 ```
@@ -150,6 +152,11 @@ docker-compose.yml                app + its own SQL Server, for local dev
 - [x] `GlobalExceptionHandler` — every endpoint now guaranteed to return
       `{"error": "..."}` for validation failures and malformed request
       bodies, not Spring's default error shapes (see `api-conventions.md`)
+- [x] Audit log — `GET /api/v1/audit-log` (super admin only, 403 for
+      everyone else), latest 200 entries platform-wide with the actor's
+      name/role joined in and location resolved from IP (cached, geo-lookup
+      only runs on this read — never slows down the write path); wired into
+      Settings' Logs tab on the frontend
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a free ngrok static domain (stable URL, unlike a
       Cloudflare quick tunnel) while Azure access is pending — see
