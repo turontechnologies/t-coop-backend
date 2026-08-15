@@ -28,6 +28,23 @@ spring:
       max-file-size: 5MB
       max-request-size: 5MB
 
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:465}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_APP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          # Port 465 is implicit SSL (not STARTTLS on 587) — both are
+          # enabled here so this config also works unchanged if MAIL_PORT
+          # is ever switched to 587.
+          ssl:
+            enable: true
+          starttls:
+            enable: true
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -45,3 +62,6 @@ app:
     # 32 characters. Generate one with e.g. `openssl rand -base64 32`.
     secret: ${JWT_SECRET}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+  mail:
+    from-address: ${MAIL_USERNAME:}
+    from-name: T-Cooperative

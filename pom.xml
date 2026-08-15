@@ -87,6 +87,12 @@
       <version>1.39.0</version>
     </dependency>
 
+    <!-- Email — real OTP delivery for the forgot-password flow (Gmail SMTP) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+
     <!-- Testing -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

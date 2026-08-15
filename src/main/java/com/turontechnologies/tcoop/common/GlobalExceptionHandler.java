@@ -1,5 +1,6 @@
 package com.turontechnologies.tcoop.common;
 
+import com.turontechnologies.tcoop.auth.EmailDeliveryException;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -52,6 +53,11 @@ public class GlobalExceptionHandler {
     log.warn("Data integrity violation: {}", ex.getMessage());
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(Map.of("error", "That value conflicts with an existing record"));
+  }
+
+  @ExceptionHandler(EmailDeliveryException.class)
+  public ResponseEntity<Map<String, String>> handleEmailDeliveryFailure(EmailDeliveryException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", ex.getMessage()));
   }
 
   @ExceptionHandler(Exception.class)
