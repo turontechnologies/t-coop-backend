@@ -10,9 +10,11 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 /**
- * Sends the OTP email for the forgot-password flow via Gmail SMTP. The HTML template mirrors the
- * frontend's design preview exactly (t-coop-app's src/components/features/auth/otp-email-preview.tsx)
- * so what a developer sees in that preview component is what actually lands in an inbox.
+ * Sends real transactional email via Gmail SMTP — the OTP for the forgot-password flow, and the
+ * welcome email a co-op's first admin gets when a super admin onboards their co-op. Both share
+ * one branded HTML shell (see {@link #htmlShell}) mirroring the frontend's design preview exactly
+ * (t-coop-app's src/components/features/auth/otp-email-preview.tsx) so what a developer sees in
+ * that preview component is what actually lands in an inbox.
  */
 @Service
 public class EmailService {
@@ -36,24 +38,7 @@ public class EmailService {
 
   /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
   public void sendOtpEmail(String toEmail, String recipientName, String otp) {
-    try {
-      MimeMessage message = mailSender.createMimeMessage();
-      MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
-      helper.setFrom(fromAddress, fromName);
-      helper.setTo(toEmail);
-      helper.setSubject("Your one-time password for T-Cooperative");
-      helper.setText(buildOtpEmailHtml(recipientName, otp), true);
-      mailSender.send(message);
-    } catch (MailException | java.io.UnsupportedEncodingException | jakarta.mail.MessagingException e) {
-      log.error("Failed to send OTP email to {}: {}", toEmail, e.getMessage());
-      throw new EmailDeliveryException("Couldn't send the OTP email. Please try again.", e);
-    }
-  }
-
-  private String buildOtpEmailHtml(String recipientName, String otp) {
-    String firstName = recipientName == null || recipientName.isBlank()
-        ? "there"
-        : recipientName.trim().split("\\s+")[0];
+    String firstName = firstNameOf(recipientName);
 
     StringBuilder digits = new StringBuilder();
     for (char digit : otp.toCharArray()) {
@@ -65,6 +50,86 @@ public class EmailService {
               + "</td><td style=\"width:8px;\"></td>");
     }
 
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">Secure access</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + "Your one-time password</h1>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstName) + ", we received a request to verify your identity. "
+            + "Use the code below to continue — it's only valid for a few minutes.</p>"
+            + "<table role=\"presentation\" align=\"center\" style=\"margin:0 auto 20px;\"><tr>"
+            + digits
+            + "</tr></table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "This code expires in 10 minutes. If you didn't request this, you can safely "
+            + "ignore this email.</p>";
+
+    send(toEmail, "Your one-time password for T-Cooperative", body);
+  }
+
+  /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
+  public void sendAdminWelcomeEmail(
+      String toEmail,
+      String recipientName,
+      String cooperativeName,
+      String membershipId,
+      String temporaryPassword) {
+    String firstName = firstNameOf(recipientName);
+
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">Welcome aboard</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + "Your admin account is ready</h1>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstName) + ", " + escapeHtml(cooperativeName)
+            + " has been onboarded to T-Cooperative and you've been set up as its "
+            + "administrator. Sign in with the credentials below, then change your "
+            + "password from Settings.</p>"
+            + "<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;"
+            + "border-collapse:collapse;\">"
+            + "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
+            + "border-radius:8px 8px 0 0;border-bottom:none;\">"
+            + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
+            + "letter-spacing:0.06em;\">Membership ID</p>"
+            + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;"
+            + "font-family:monospace;\">" + escapeHtml(membershipId) + "</p>"
+            + "</td></tr>"
+            + "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
+            + "border-radius:0 0 8px 8px;\">"
+            + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
+            + "letter-spacing:0.06em;\">Temporary password</p>"
+            + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;"
+            + "font-family:monospace;\">" + escapeHtml(temporaryPassword) + "</p>"
+            + "</td></tr>"
+            + "</table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "Keep this email private — anyone with these credentials can sign in as your "
+            + "co-operative's administrator.</p>";
+
+    send(
+        toEmail,
+        "Welcome to T-Cooperative — your admin account for " + cooperativeName,
+        body);
+  }
+
+  private void send(String toEmail, String subject, String bodyHtml) {
+    try {
+      MimeMessage message = mailSender.createMimeMessage();
+      MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+      helper.setFrom(fromAddress, fromName);
+      helper.setTo(toEmail);
+      helper.setSubject(subject);
+      helper.setText(htmlShell(bodyHtml), true);
+      mailSender.send(message);
+    } catch (MailException | java.io.UnsupportedEncodingException | jakarta.mail.MessagingException e) {
+      log.error("Failed to send email to {}: {}", toEmail, e.getMessage());
+      throw new EmailDeliveryException("Couldn't send the email. Please try again.", e);
+    }
+  }
+
+  private String htmlShell(String bodyContent) {
     return "<!DOCTYPE html>"
         + "<html><body style=\"margin:0;padding:24px;background:#f1f5f9;"
         + "font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;\">"
@@ -79,19 +144,7 @@ public class EmailService {
         + "style=\"display:block;margin:0 auto;\" />"
         + "</td></tr>"
         + "<tr><td style=\"padding:28px 32px;\">"
-        + "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
-        + "letter-spacing:0.08em;text-transform:uppercase;\">Secure access</p>"
-        + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
-        + "Your one-time password</h1>"
-        + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
-        + "Hi " + escapeHtml(firstName) + ", we received a request to verify your identity. "
-        + "Use the code below to continue — it's only valid for a few minutes.</p>"
-        + "<table role=\"presentation\" align=\"center\" style=\"margin:0 auto 20px;\"><tr>"
-        + digits
-        + "</tr></table>"
-        + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
-        + "This code expires in 10 minutes. If you didn't request this, you can safely ignore "
-        + "this email.</p>"
+        + bodyContent
         + "<hr style=\"border:none;border-top:1px solid #f1f5f9;margin:0 0 16px;\" />"
         + "<p style=\"margin:0;text-align:center;color:#64748b;font-size:12px;\">"
         + "Need help? <a href=\"mailto:support@turon.tech\" "
@@ -100,6 +153,12 @@ public class EmailService {
         + "</td></tr>"
         + "</table>"
         + "</body></html>";
+  }
+
+  private String firstNameOf(String fullName) {
+    return fullName == null || fullName.isBlank()
+        ? "there"
+        : fullName.trim().split("\\s+")[0];
   }
 
   private String escapeHtml(String value) {

@@ -70,6 +70,25 @@ public class Member {
     // JPA
   }
 
+  /** Creates a new member row — used when a super admin onboards a co-op's first admin. */
+  public Member(
+      String id,
+      String cooperativeId,
+      String role,
+      String passwordHash,
+      String firstName,
+      String lastName,
+      String email) {
+    this.id = id;
+    this.cooperativeId = cooperativeId;
+    this.role = role;
+    this.passwordHash = passwordHash;
+    this.firstName = firstName;
+    this.lastName = lastName;
+    this.email = email;
+    this.status = "Active";
+  }
+
   public String getId() {
     return id;
   }
