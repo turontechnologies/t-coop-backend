@@ -8,8 +8,10 @@ import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -18,10 +20,15 @@ public class ProfileController {
 
   private final MemberRepository memberRepository;
   private final AuditLogService auditLogService;
+  private final PasswordEncoder passwordEncoder;
 
-  public ProfileController(MemberRepository memberRepository, AuditLogService auditLogService) {
+  public ProfileController(
+      MemberRepository memberRepository,
+      AuditLogService auditLogService,
+      PasswordEncoder passwordEncoder) {
     this.memberRepository = memberRepository;
     this.auditLogService = auditLogService;
+    this.passwordEncoder = passwordEncoder;
   }
 
   @GetMapping("/api/v1/profile")
@@ -80,6 +87,29 @@ public class ProfileController {
         member.getId(), member.getRole(), "Settings", "Update", "Profile", "Success", httpRequest);
 
     return ResponseEntity.ok(ProfileDto.from(member));
+  }
+
+  @PostMapping("/api/v1/profile/password")
+  public ResponseEntity<?> changePassword(
+      Authentication authentication,
+      @Valid @RequestBody ChangePasswordRequest request,
+      HttpServletRequest httpRequest) {
+    Member member = requireCaller(authentication);
+    if (member == null) {
+      return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    }
+
+    if (!passwordEncoder.matches(request.currentPassword(), member.getPasswordHash())) {
+      return ResponseEntity.status(400).body(Map.of("error", "Current password is incorrect"));
+    }
+
+    member.changePassword(passwordEncoder.encode(request.newPassword()));
+    memberRepository.save(member);
+
+    auditLogService.log(
+        member.getId(), member.getRole(), "Settings", "Update", "Password", "Success", httpRequest);
+
+    return ResponseEntity.ok(Map.of("message", "Password updated"));
   }
 
   private Member requireCaller(Authentication authentication) {

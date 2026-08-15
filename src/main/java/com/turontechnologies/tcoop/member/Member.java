@@ -203,4 +203,8 @@ public class Member {
     this.accountNumber = accountNumber;
     this.accountName = accountName;
   }
+
+  public void changePassword(String newPasswordHash) {
+    this.passwordHash = newPasswordHash;
+  }
 }

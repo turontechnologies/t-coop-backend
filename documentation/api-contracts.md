@@ -209,6 +209,17 @@ Same shape as request body (minus `membershipId`, which is fixed). Returns the u
 
 **Built.** `ProfileController`/`ProfileDto`/`ProfileUpdateRequest` — server-side validation mirrors the frontend's zod schema exactly (10-digit account number, 11-digit NIN, valid email, etc.), so a request that passes client-side validation never fails here. GET is a single `findById` (sub-100ms locally). Every update is audit-logged (module `Settings` / action `Update` / resource `Profile` — matching the frontend's fixed audit-log enums). Validation failures return `{"error": "combined human-readable message"}` via the new `GlobalExceptionHandler` — see api-conventions.md.
 
+### `POST /profile/password`
+
+```json
+// Request
+{ "currentPassword": "string", "newPassword": "string" }
+// Response
+{ "message": "Password updated" }
+```
+
+**Built.** Verifies `currentPassword` against the stored bcrypt hash (400 `"Current password is incorrect"` if it doesn't match — never reveals whether the *membership ID* is valid, same principle as login), requires `newPassword` to be at least 6 characters (matches the frontend's `settingsProfileSchema`), re-hashes and saves. Audit-logged as module `Settings` / action `Update` / resource `Password`. Self-service only — there's no separate "admin resets someone else's password" endpoint yet.
+
 ---
 
 ## 5. Savings

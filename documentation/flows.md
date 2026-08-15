@@ -143,6 +143,15 @@ sending the `PATCH`, so fields that tab doesn't show are never touched.
 The `PATCH` request/validation on the backend is identical either way;
 it doesn't know or care which UI sent it.
 
+**Password change** (`POST /api/v1/profile/password`, same Settings tab)
+is a separate call, sent *after* the profile-fields `PATCH` succeeds: verify
+`currentPassword` against the stored bcrypt hash (400 if it doesn't match),
+re-hash and save `newPassword`, audit-log (`Settings` / `Update` /
+`Password`). Sequencing it after the profile save means a password-change
+failure never loses the profile edits that already succeeded — the frontend
+shows "Profile details saved" plus an inline error scoped to the password
+fields, not a single failure toast that would wrongly imply nothing saved.
+
 ## Audit log flow
 
 ```mermaid

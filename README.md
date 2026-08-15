@@ -148,7 +148,9 @@ docker-compose.yml                app + its own SQL Server, for local dev
       illustrative (the hourly chart and dividends figure)
 - [x] Profile — `GET`/`PATCH /api/v1/profile` (self-service, any
       authenticated member), server-side validation mirrors the frontend's
-      zod schema exactly, every update audit-logged
+      zod schema exactly, every update audit-logged; `POST /api/v1/profile/password`
+      for self-service password change (verifies current password, 400 if
+      wrong, never a generic 500)
 - [x] `GlobalExceptionHandler` — every endpoint now guaranteed to return
       `{"error": "..."}` for validation failures and malformed request
       bodies, not Spring's default error shapes (see `api-conventions.md`)
