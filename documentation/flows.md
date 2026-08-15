@@ -1,7 +1,8 @@
 # Request flows
 
-Sequence diagrams for the two flows the frontend now calls for real:
-authentication (login/me/logout) and the dashboard summary.
+Sequence diagrams for the flows the frontend now calls for real:
+authentication (login/me/logout), the dashboard summary, and profile
+view/edit.
 
 ## Auth flow
 
@@ -9,7 +10,7 @@ authentication (login/me/logout) and the dashboard summary.
 sequenceDiagram
     participant U as Browser (Next.js)
     participant F as Frontend (Vercel)
-    participant T as Cloudflare Tunnel
+    participant T as Tunnel (ngrok/Cloudflare)
     participant B as Spring Boot backend
     participant DB as Azure SQL / MSSQL
 
@@ -54,6 +55,19 @@ one call to make regardless of auth strategy. The token is discarded
 client-side either way; if token revocation is ever needed, this endpoint is
 where a blacklist check would be added.
 
+**Any 401 from any endpoint (except `/auth/login` itself) forces the user
+back to `/login`.** This is handled once, centrally, in the frontend's axios
+response interceptor (`t-coop-app/src/lib/axios.ts`) — it clears the
+Zustand auth store and hard-redirects, so an expired/invalid token on *any*
+page (not just auth endpoints) recovers cleanly instead of showing a broken
+page with failed requests. `/auth/login`'s own 401 (wrong password) is
+excluded from this so a failed login attempt doesn't bounce the user in a
+loop — that case is handled by the login form itself. This depends on 401
+responses actually carrying CORS headers even when Spring Security
+generates them directly (see api-conventions.md § CORS) — without that, the
+browser reports a CORS failure instead of a 401 and this redirect never
+fires.
+
 ## Dashboard summary flow
 
 ```mermaid
@@ -90,3 +104,41 @@ derived from the real totals rather than invented outright: dividends is
 2% of savings (matching the frontend's pre-existing `SAVINGS_EARNINGS_RATE`
 convention) and the hourly chart distributes each real total across the
 same illustrative daily shape the old frontend mock used.
+
+## Profile view/edit flow
+
+```mermaid
+sequenceDiagram
+    participant U as Browser (Next.js)
+    participant F as Frontend (Vercel)
+    participant B as Spring Boot backend
+    participant DB as Azure SQL / MSSQL
+
+    U->>F: Open /profile (or /settings → Profile tab for super admin)
+    F->>B: GET /api/v1/profile (Bearer token)
+    B->>B: resolve caller (memberId) from JWT principal
+    B->>DB: SELECT member WHERE id = :memberId
+    B-->>F: 200 { membershipId, firstName, ..., guarantor }
+    F-->>U: render form (loading skeleton while this is in flight)
+
+    U->>F: Edit fields, click Save
+    F->>F: zod-validate client-side first
+    F->>B: PATCH /api/v1/profile (Bearer token, full record)
+    alt valid
+        B->>B: @Valid Jakarta Bean Validation (mirrors the frontend's zod schema)
+        B->>DB: UPDATE members SET ... WHERE id = :memberId
+        B->>DB: INSERT audit_log (Profile / Update Profile / Success)
+        B-->>F: 200 { updated record }
+        F-->>U: toast "Profile updated successfully"
+    else invalid
+        B-->>F: 400 { error: "combined field messages" }
+        F-->>U: toast with the real backend message (axios response\ninterceptor unwraps { error } into a normal Error)
+    end
+```
+
+`/settings` → Profile tab (super admin only) edits a smaller subset of
+fields than the full record (no NIN/bank account/gender/state/city) — the
+frontend merges its edits onto the last-fetched full record before
+sending the `PATCH`, so fields that tab doesn't show are never touched.
+The `PATCH` request/validation on the backend is identical either way;
+it doesn't know or care which UI sent it.

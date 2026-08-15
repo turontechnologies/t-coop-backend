@@ -12,6 +12,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfigurationSource;
 
 @Configuration
 public class SecurityConfig {
@@ -23,18 +24,25 @@ public class SecurityConfig {
 
   @Bean
   public SecurityFilterChain securityFilterChain(
-      HttpSecurity http, JwtService jwtService, JsonAuthenticationEntryPoint authEntryPoint)
+      HttpSecurity http,
+      JwtService jwtService,
+      JsonAuthenticationEntryPoint authEntryPoint,
+      CorsConfigurationSource corsConfigurationSource)
       throws Exception {
     http.csrf(AbstractHttpConfigurer::disable)
+        // Registers CORS as a filter in the security chain itself (not just an MVC concern) —
+        // so even a 401 generated directly by authEntryPoint below (bad/expired token, never
+        // reaches MVC dispatch) still comes back with Access-Control-Allow-Origin. See the
+        // javadoc on CorsConfig for the full story; this bit it fixes is easy to reintroduce
+        // accidentally, so don't remove this line without understanding why it's here.
+        .cors(cors -> cors.configurationSource(corsConfigurationSource))
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .exceptionHandling(handling -> handling.authenticationEntryPoint(authEntryPoint))
         .authorizeHttpRequests(
             auth ->
                 auth
                     // CORS preflight requests never carry the Authorization header, so they
-                    // must be let through Security before it ever asks "authenticated?" —
-                    // otherwise the browser never sees the Access-Control-Allow-Origin header
-                    // that the WebMvcConfigurer-based CorsConfig would have added downstream.
+                    // must be let through Security before it ever asks "authenticated?".
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
                     .requestMatchers("/api/health", "/api/v1/auth/**", "/error")

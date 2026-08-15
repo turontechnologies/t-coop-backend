@@ -207,6 +207,8 @@ Same shape as one list item, plus `savingsByType` and `loansByType` breakdowns:
 
 Same shape as request body (minus `membershipId`, which is fixed). Returns the updated record.
 
+**Built.** `ProfileController`/`ProfileDto`/`ProfileUpdateRequest` — server-side validation mirrors the frontend's zod schema exactly (10-digit account number, 11-digit NIN, valid email, etc.), so a request that passes client-side validation never fails here. GET is a single `findById` (sub-100ms locally). Every update is audit-logged (`Profile` / `Update Profile`). Validation failures return `{"error": "combined human-readable message"}` via the new `GlobalExceptionHandler` — see api-conventions.md.
+
 ---
 
 ## 5. Savings

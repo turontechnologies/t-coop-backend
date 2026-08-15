@@ -89,6 +89,8 @@ src/main/java/com/turontechnologies/tcoop/
   loan/                          LoanType/LoanRecord entities + repositories
   audit/                         AuditLog entity + service — every login/logout/mutation
   dashboard/                     GET /api/v1/dashboard/summary (role-aware aggregates)
+  profile/                       GET/PATCH /api/v1/profile (self-service)
+  common/                        GlobalExceptionHandler — {"error": "..."} for every endpoint
   health/                        liveness check
   upload/                        Cloudinary-backed file uploads (POST /api/v1/uploads)
   (one package per domain area goes here as it's built: notice, …)
@@ -98,6 +100,7 @@ src/main/resources/
     V1__init_schema.sql            full baseline schema
     V2__seed_demo_users.sql        SA-0001/AD-0001/MB-0001 demo accounts
     V3__seed_dashboard_data.sql    savings/loan types + records so the dashboard has real numbers
+    V4__seed_member_profiles.sql   fills in demo accounts' profile fields (bank, NIN, address, …)
 Dockerfile                       multi-stage build (Maven -> slim JRE)
 docker-compose.yml                app + its own SQL Server, for local dev
 ```
@@ -116,14 +119,18 @@ docker-compose.yml                app + its own SQL Server, for local dev
   Docker stack, the temporary public tunnel, and where real Azure
   deployment fits in.
 - [`documentation/flows.md`](documentation/flows.md) — Mermaid sequence
-  diagrams for the auth and dashboard-summary request flows.
+  diagrams for the auth, dashboard-summary, and profile request flows.
 
 ## Status
 
 - [x] Project scaffold (Spring Boot + MSSQL + Flyway + Maven wrapper)
 - [x] Health check (`GET /api/health`)
 - [x] CORS configured and verified for both `localhost:3000` and the live
-      Vercel frontend (`https://t-coop-app.vercel.app`)
+      Vercel frontend (`https://t-coop-app.vercel.app`) — wired into the
+      Spring Security filter chain itself (not just Spring MVC), so even a
+      401 generated directly by Security carries the right headers; see
+      `documentation/api-conventions.md` § CORS for why that distinction
+      matters
 - [x] Full baseline database schema (`V1__init_schema.sql`) — proven to
       apply cleanly against a real SQL Server, not just written
 - [x] Cloudinary upload endpoint (`POST /api/v1/uploads`), mirroring the
@@ -137,12 +144,19 @@ docker-compose.yml                app + its own SQL Server, for local dev
       cards + recentActivity computed from real `savings_records` /
       `loan_records`; see `documentation/flows.md` for what's real vs.
       illustrative (the hourly chart and dividends figure)
+- [x] Profile — `GET`/`PATCH /api/v1/profile` (self-service, any
+      authenticated member), server-side validation mirrors the frontend's
+      zod schema exactly, every update audit-logged
+- [x] `GlobalExceptionHandler` — every endpoint now guaranteed to return
+      `{"error": "..."}` for validation failures and malformed request
+      bodies, not Spring's default error shapes (see `api-conventions.md`)
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
-      publicly via a Cloudflare quick tunnel while Azure access is pending
-      — see `documentation/deployment.md` for the honest limits of that
-- [x] Frontend wired to real login/me/logout and the dashboard summary
-      endpoint (behind `NEXT_PUBLIC_USE_MOCK_*` flags on the frontend, so
-      it can fall back to mock data if the tunnel is down)
+      publicly via a free ngrok static domain (stable URL, unlike a
+      Cloudflare quick tunnel) while Azure access is pending — see
+      `documentation/deployment.md` for the honest limits of that
+- [x] Frontend wired to real login/me/logout, the dashboard summary, and
+      profile view/edit (behind `NEXT_PUBLIC_USE_MOCK_*` flags on the
+      frontend, so it can fall back to mock data if the tunnel is down)
 - [ ] Azure SQL instance actually provisioned (blocked on Azure login —
       see the team for the connection details once it exists)
 - [ ] Real Azure deployment (App Service or similar) — the Docker tunnel
