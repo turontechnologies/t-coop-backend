@@ -5,6 +5,47 @@ bodies. Java (Spring Boot) + MSSQL (Azure SQL), designed to be called by the
 frontend at [t-coop-app](https://github.com/turontechnologies/t-coop-app)
 (deployed on Vercel).
 
+## Daily startup (everything is already built — just bring it back up)
+
+Three things need to be running, in this order, every time the machine
+restarts or Docker/ngrok get stopped:
+
+**1. Docker Desktop** — open it normally (from the Start menu / taskbar) and
+wait until it says it's running before continuing.
+
+**2. The backend + database containers:**
+
+```bash
+cd t-coop-backend
+docker compose up -d
+curl http://localhost:8080/api/health   # confirm it's up — should return {"status":"ok",...}
+```
+
+**3. The ngrok tunnel** (makes the backend reachable from the deployed
+Vercel frontend, not just `localhost`):
+
+```bash
+ngrok http --url=hamster-probiotic-compile.ngrok-free.dev 8080
+```
+
+Leave this running in its own terminal window — closing it drops the
+tunnel. Confirm it worked from a *different* terminal:
+
+```bash
+curl https://hamster-probiotic-compile.ngrok-free.dev/api/health
+```
+
+That's it — no rebuild needed unless the backend's code actually changed
+(only then: `docker compose up -d --build`). The frontend's
+`NEXT_PUBLIC_API_URL` never needs updating for this, since the ngrok domain
+is a **permanent** static domain (unlike a Cloudflare quick tunnel) — it's
+tied to the ngrok account, not to this specific run.
+
+If `ngrok.exe` fails to launch or reports a virus warning, that's Windows
+Defender flagging it (a known false positive for tunneling tools) — see
+`documentation/deployment.md` § 2a for the options (a targeted file
+exclusion is safer than turning Defender off entirely).
+
 ## Stack
 
 - **Java 21** + **Spring Boot 3.3**
@@ -36,8 +77,9 @@ curl http://localhost:8080/api/health
 That's it — the app and its own SQL Server both come up, Flyway creates
 the schema and seeds three demo accounts automatically. See
 [`documentation/deployment.md`](documentation/deployment.md) for details,
-including how to expose this publicly with a Cloudflare tunnel while Azure
-access is pending.
+including how to expose this publicly with an ngrok tunnel (or Cloudflare's,
+if ngrok isn't available) while Azure access is pending. Already set this
+up before? Jump to **Daily startup** above instead.
 
 Demo accounts (password `admin123` for all three, same IDs as the
 frontend's mock users):
@@ -90,7 +132,9 @@ src/main/java/com/turontechnologies/tcoop/
   audit/                         AuditLog entity/service/controller — every login/logout/
                                   mutation, GET /api/v1/audit-log (super admin only)
   dashboard/                     GET /api/v1/dashboard/summary (role-aware aggregates)
-  profile/                       GET/PATCH /api/v1/profile (self-service)
+  profile/                       GET/PATCH /api/v1/profile (self-service), POST /profile/password
+  settings/                      PlatformSettings singleton — GET/PATCH /api/v1/settings/fees,
+                                  /settings/collection-account, /settings/integrations (super admin)
   common/                        GlobalExceptionHandler — {"error": "..."} for every endpoint
   health/                        liveness check
   upload/                        Cloudinary-backed file uploads (POST /api/v1/uploads)
@@ -103,6 +147,7 @@ src/main/resources/
     V3__seed_dashboard_data.sql    savings/loan types + records so the dashboard has real numbers
     V4__seed_member_profiles.sql   fills in demo accounts' profile fields (bank, NIN, address, …)
     V5__fix_profile_audit_log_labels.sql   corrects historical audit_log rows to the right module/action
+    V6__add_collection_account_and_integrations.sql   adds columns to platform_fee_settings
 Dockerfile                       multi-stage build (Maven -> slim JRE)
 docker-compose.yml                app + its own SQL Server, for local dev
 ```
@@ -159,13 +204,20 @@ docker-compose.yml                app + its own SQL Server, for local dev
       name/role joined in and location resolved from IP (cached, geo-lookup
       only runs on this read — never slows down the write path); wired into
       Settings' Logs tab on the frontend
+- [x] Platform settings (super admin only) — `GET`/`PATCH` on
+      `/api/v1/settings/fees`, `/settings/collection-account`,
+      `/settings/integrations`, all three backed by the same singleton row
+      (`platform_fee_settings`, `V6` added the new columns); Paystack/Flutterwave
+      credentials are stored for reference only, never read by the live
+      Paystack integration
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a free ngrok static domain (stable URL, unlike a
       Cloudflare quick tunnel) while Azure access is pending — see
       `documentation/deployment.md` for the honest limits of that
-- [x] Frontend wired to real login/me/logout, the dashboard summary, and
-      profile view/edit (behind `NEXT_PUBLIC_USE_MOCK_*` flags on the
-      frontend, so it can fall back to mock data if the tunnel is down)
+- [x] Frontend wired to real login/me/logout, the dashboard summary,
+      profile view/edit, the audit log, and platform settings (behind
+      `NEXT_PUBLIC_USE_MOCK_*` flags on the frontend, so it can fall back to
+      mock data if the tunnel is down)
 - [ ] Azure SQL instance actually provisioned (blocked on Azure login —
       see the team for the connection details once it exists)
 - [ ] Real Azure deployment (App Service or similar) — the Docker tunnel

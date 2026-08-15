@@ -573,6 +573,71 @@ Currently only used for avatars — should also replace the base64 storage used 
 
 ---
 
+## 13. Platform settings (super admin only)
+
+Backs three Settings tabs: Fees & Charges, Payment Settings → Account Details, and
+Integrations. All three read/write the same singleton row (`platform_fee_settings`,
+`id = 1`) — see `documentation/schema-design.md`. Every endpoint here 403s for anyone
+whose role isn't `super_admin`.
+
+### `GET` / `PATCH /settings/fees`
+
+```json
+{
+  "savingsChargeType": "Fixed|Percentage",
+  "savingsChargeAmount": 0.25,
+  "loansChargeType": "Fixed|Percentage",
+  "loansChargeAmount": 1,
+  "withdrawalFeePercent": 1
+}
+```
+
+### `GET` / `PATCH /settings/collection-account`
+
+```json
+{ "bankCode": "string", "accountNumber": "string", "accountName": "string?" }
+```
+
+The platform's own bank account for receiving payments — same real Paystack
+"Verify" flow as everywhere else on the frontend, unrelated to any one
+co-operative's account.
+
+### `GET` / `PATCH /settings/integrations`
+
+```json
+{
+  "paystackEnabled": true,
+  "paystackPublicKey": "string?",
+  "paystackSecretKey": "string?",
+  "paystackWebhookSecret": "string?",
+  "flutterwaveEnabled": false,
+  "flutterwavePublicKey": "string?",
+  "flutterwaveSecretKey": "string?",
+  "flutterwaveEncryptionKey": "string?"
+}
+```
+
+**Stored for reference only — never wired into a live payment call.** The
+real Paystack integration (`t-coop-app/src/app/api/paystack/*`) always reads
+its keys from the server environment (`PAYSTACK_SECRET_KEY`), never from
+values saved here; Flutterwave has no live route handler at all. Don't
+change that without a deliberate decision — see the javadoc on
+`IntegrationSettingsUpdateRequest`.
+
+**Built.** `PlatformSettingsController`/`PlatformSettings`/`PlatformSettingsRepository`
+(`V6__add_collection_account_and_integrations.sql` added the columns to the
+existing singleton). Every update audit-logged (module `Settings` / action
+`Update` / resource `Fees & Charges` / `Collections Account` / `Integrations`).
+
+**Known gap:** Paystack/Flutterwave secret fields are stored as plain
+`NVARCHAR`, not encrypted at rest — acceptable for now since they're
+explicitly non-live "reference" values (mirrors the mock's prior
+in-memory-only behavior, not a regression), but genuine secret-at-rest
+handling (encryption, masked responses) would be needed before this ever
+becomes the live credential source.
+
+---
+
 ## Not in scope
 
 - **Country/State/City dropdowns** — called directly from the browser against `countriesnow.space` (free, public, keyless). No backend work needed unless you want to bring it in-house later.

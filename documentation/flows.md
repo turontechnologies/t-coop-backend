@@ -189,3 +189,19 @@ the write side now uses the correct values, a migration corrected the
 existing bad rows, and the frontend now falls back to a neutral icon for
 any value it doesn't recognize instead of crashing, so a future mismatch
 degrades gracefully instead of taking the page down.
+
+## Platform settings flow (Fees & Charges / Account Details / Integrations)
+
+Same shape as the profile flow above, three times over — `GET`/`PATCH`
+`/api/v1/settings/fees`, `/settings/collection-account`, and
+`/settings/integrations` each read/write one singleton row
+(`platform_fee_settings`, `id = 1`), gated to `super_admin` only (403
+otherwise, checked in `PlatformSettingsController` the same way
+`AuditLogController` checks it — never just hidden in the UI). Each
+successful `PATCH` audit-logs `Settings` / `Update` / one of `Fees & Charges`
+/ `Collections Account` / `Integrations`. The Integrations credentials are
+saved and returned as plain text (matching the frontend's prior in-memory
+mock behavior) but are never read by the live Paystack integration, which
+always uses the server's own `PAYSTACK_SECRET_KEY` environment variable —
+see the javadoc on `IntegrationSettingsUpdateRequest` before wiring these
+saved values into anything that actually moves money.

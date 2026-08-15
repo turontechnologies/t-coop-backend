@@ -160,9 +160,13 @@ One row per manual subscription payment recorded for a co-op. Standing
 
 ### `platform_fee_settings`
 Singleton row (`id = 1`) for super-admin-level settings: the platform's
-own withdrawal fee percent, savings/loan charge config. Enforced as a
-single row via a check constraint, not a real multi-tenant table — there's
-one platform.
+own withdrawal fee percent, savings/loan charge config, collections bank
+account (`collection_*` columns, added in V6), and Paystack/Flutterwave
+credential fields (`paystack_*`/`flutterwave_*`, also V6 — stored for
+reference only, never read by the live Paystack integration, which always
+uses the server's own `PAYSTACK_SECRET_KEY` env var). Enforced as a single
+row via a check constraint, not a real multi-tenant table — there's one
+platform.
 
 ### `password_reset_tokens`
 Backs the forgot-password/OTP/reset flow (`api-contracts.md` §1) properly
