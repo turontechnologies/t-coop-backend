@@ -459,33 +459,77 @@ Single record detail.
 
 ---
 
-## 8. Subscriptions (super_admin only)
+## 8. Subscriptions
+
+**No co-op can act on the platform (any non-GET request, anywhere) without an active
+subscription** — a co-op that has never paid is treated identically to one that lapsed. This is
+enforced once, centrally, by `SubscriptionGateFilter`, not scattered across individual
+controllers. `Cooperative.subscriptionCycle`/`subscriptionExpiresAt` decide this; both start
+null until the first payment.
+
+Pricing itself is a super-admin-managed catalog (**Subscription Plans**, §8a) — every duration
+(Weekly/Monthly/custom) and price is something the super admin added, not a fixed formula, and
+New Subscription / Renewal are priced independently.
 
 ```ts
-// CoopSubscriptionPayment shape
+// SubscriptionPayment shape
 {
   "id": "string", "paymentRef": "string", "amountPaid": 300000,
-  "method": "Manual|Paystack", "date": "iso-date", "narration": "string",
-  "status": "Active|Overdue" // the co-op's subscription standing as of this payment
+  "method": "Manual|Paystack|Flutterwave", "date": "iso-date",
+  "type": "New Subscription|Renewal", // auto-detected server-side from payment history — never client-supplied
+  "cycle": "string", // snapshot of the plan's label at the time — free text, not an enum
+  "status": "Active|Overdue",
+  "resultingExpiresAt": "iso-date" // what THIS payment extended the subscription to — captured at the time, so a receipt re-downloaded later is still accurate
 }
 ```
 
+### 8a. Subscription Plans (`super_admin` only) — Payment Settings → Subscription Plans
+
+The editable price list everything else in this section reads from. Freely
+addable/editable/deletable — `durationInDays` is the flexible unit (not a fixed enum), so a plan
+can be any length ("Weekly", "6 Months", "18 Months", whatever). Deleting a plan never corrupts
+payment history — `SubscriptionPayment.cycle` is a label snapshot, not a foreign key.
+
+```ts
+// SubscriptionPlan shape
+{
+  "id": "uuid", "type": "New Subscription|Renewal", "label": "string",
+  "durationInDays": 30, "amount": 12500, "status": "Active|Inactive"
+}
+```
+
+- `GET /settings/subscription-plans` — list all.
+- `POST /settings/subscription-plans` — `{ type, label, durationInDays, amount }` → creates
+  (`status` always starts `"Active"`).
+- `PATCH /settings/subscription-plans/:id` — `{ label, durationInDays, amount, status }`. `type`
+  is never editable — delete and re-add to move a plan between New Subscription and Renewal.
+- `DELETE /settings/subscription-plans/:id` — hard delete.
+
+An `Inactive` plan stays visible in past payment history but can no longer be picked for a new
+payment (filtered out of both `GET /subscriptions/me` and the super admin's manual-recording
+picker on the frontend).
+
+### Super admin — manual recording (`super_admin` only)
+
 ### `GET /subscriptions`
 
-List every co-op's subscription standing. Supports `?status=&search=&from=&to=` (date range filters on last-payment date).
+List every co-op's subscription standing.
 
 ```json
 [
   {
-    "coopId": "string",
-    "coopName": "string",
-    "revenueEarned": 900000, // sum of all payments for this co-op
-    "subscriptionFee": 300000, // recurring fee amount
-    "lastPaymentDate": "iso-date",
-    "status": "Active|Overdue" // most recent payment's status
+    "coopId": "string", "coopName": "string",
+    "revenueEarned": 900000, "subscriptionFee": 300000,
+    "subscriptionCycle": "string|null",
+    "lastPaymentDate": "iso-date|null", "subscriptionExpiresAt": "iso-date|null",
+    "status": "Active|Overdue"
   }
 ]
 ```
+
+`subscriptionFee` here is `Cooperative.subscriptionFee` — the co-op's own onboarding-time
+figure, kept as an informational field only. It's no longer what self-service/manual pricing is
+computed from; that's entirely the Subscription Plans catalog now.
 
 ### `GET /subscriptions/summary`
 
@@ -493,21 +537,79 @@ List every co-op's subscription standing. Supports `?status=&search=&from=&to=` 
 { "mgtFeesReceived": 1200000 }
 ```
 
-Sum of `revenueEarned` across every co-op.
-
 ### `GET /cooperatives/:id/subscriptions`
 
-Full payment history for one co-op, newest first — array of `CoopSubscriptionPayment`.
+Full payment history for one co-op, newest first — array of `SubscriptionPayment`.
 
 ### `POST /cooperatives/:id/subscriptions`
 
+A manual record of money already received (bank transfer, cheque, etc.) — not a gateway call.
+`planId` picks the label/duration from the Subscription Plans catalog; `amountPaid` stays
+free-typed since a real external payment can legitimately differ from the catalog's listed
+price (partial, discounted, negotiated).
+
 ```json
 // Request
-{ "amountPaid": 75000, "narration": "string" }
-// Response: the created CoopSubscriptionPayment (paymentRef and date generated server-side, status "Active")
+{ "amountPaid": 75000, "planId": "uuid" }
+// Response: { "payment": SubscriptionPayment, "nextRenewalDate": "iso-date" }
 ```
 
-This is a manual record of money already received (bank transfer, cheque, etc.) — not a payment gateway call. If a real online-collection flow is added later, `method` already supports `"Paystack"` alongside `"Manual"`.
+### Self-service (`admin`, the caller's own co-op only)
+
+The one path exempted from the platform-wide subscription lock — how a dormant admin pays their
+way back in, via Paystack or Flutterwave (whichever the super admin enabled and entered real
+keys for in Settings → Integrations). Amounts are always computed/verified server-side —
+`initialize` decides the price from the plan catalog, `confirm` re-verifies against the real
+gateway API before crediting anything.
+
+#### `GET /subscriptions/me`
+
+```json
+{
+  "coopId": "string", "coopName": "string", "adminName": "string",
+  "status": "Active|Overdue",
+  "subscriptionCycle": "string|null",
+  "subscriptionExpiresAt": "iso-date|null",
+  "availablePlans": [SubscriptionPlan, ...], // Active plans of the type matching this co-op's current state
+  "availableGateways": [{ "gateway": "Paystack|Flutterwave", "publicKey": "string" }]
+}
+```
+
+`availablePlans` is auto-scoped: `New Subscription` plans if `subscriptionExpiresAt` is still
+null (never paid), `Renewal` plans otherwise — matching exactly what a payment against this
+co-op would be classified as.
+
+#### `GET /subscriptions/me/history`
+
+Same shape as `GET /cooperatives/:id/subscriptions`, scoped to the caller's own co-op.
+
+#### `POST /subscriptions/me/initialize`
+
+```json
+// Request
+{ "planId": "uuid", "gateway": "Paystack|Flutterwave" }
+// Response
+{ "reference": "string", "amount": 25000, "gateway": "Paystack", "publicKey": "string" }
+```
+
+`amount` comes straight from the plan — never client-supplied. `409` if the plan's `type`
+doesn't match what this co-op can currently buy (e.g. picking a Renewal plan before ever
+subscribing). `reference`/`amount`/`cycle`/`durationInDays`/`gateway` are persisted as a
+`Pending` intent that `confirm` looks up by reference.
+
+#### `POST /subscriptions/me/confirm`
+
+```json
+// Request
+{ "reference": "string" }
+// Response: SubscriptionReceipt — { coopId, coopName, adminName, paymentRef, amountPaid, method,
+//   date, type, cycle, status, nextRenewalDate }
+```
+
+Verifies the reference against the real gateway's transaction-verify endpoint server-side
+(`PaymentGatewayService`) using the secret key from `PlatformSettings`. `402` if verification
+fails or the gateway-reported amount is less than the intent's amount; `409` if that reference
+was already confirmed once.
 
 ---
 

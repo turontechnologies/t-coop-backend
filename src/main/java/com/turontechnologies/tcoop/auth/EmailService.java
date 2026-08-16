@@ -1,6 +1,11 @@
 package com.turontechnologies.tcoop.auth;
 
 import jakarta.mail.internet.MimeMessage;
+import java.math.BigDecimal;
+import java.text.NumberFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -112,6 +117,63 @@ public class EmailService {
         toEmail,
         "Welcome to T-Cooperative — your admin account for " + cooperativeName,
         body);
+  }
+
+  /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
+  public void sendSubscriptionReceiptEmail(
+      String toEmail,
+      String recipientName,
+      String cooperativeName,
+      BigDecimal amountPaid,
+      String type,
+      String cycle,
+      LocalDate nextRenewalDate) {
+    String firstName = firstNameOf(recipientName);
+    String verb = "New Subscription".equals(type) ? "activated" : "renewed";
+    DateTimeFormatter dateFormat = DateTimeFormatter.ofPattern("d MMMM yyyy");
+
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">Payment received</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + "Your subscription has been " + verb + "</h1>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstName) + ", we've recorded " + escapeHtml(cooperativeName)
+            + "'s subscription payment. Here's a summary for your records:</p>"
+            + "<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;"
+            + "border-collapse:collapse;\">"
+            + receiptRow("Amount paid", formatNaira(amountPaid), true)
+            + receiptRow("Subscription type", type, false)
+            + receiptRow("Billing cycle", cycle, false)
+            + receiptRow("Next renewal date", nextRenewalDate.format(dateFormat), false)
+            + "</table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "Your co-operative's account is active. We'll remind you again as your next "
+            + "renewal date approaches.</p>";
+
+    send(toEmail, "Payment received — " + cooperativeName + "'s subscription is active", body);
+  }
+
+  private String receiptRow(String label, String value, boolean firstRow) {
+    String radius = firstRow ? "border-radius:8px 8px 0 0;border-bottom:none;" : "";
+    return "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
+        + radius
+        + "\">"
+        + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
+        + "letter-spacing:0.06em;\">"
+        + escapeHtml(label)
+        + "</p>"
+        + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;\">"
+        + escapeHtml(value)
+        + "</p>"
+        + "</td></tr>";
+  }
+
+  private String formatNaira(BigDecimal amount) {
+    NumberFormat format = NumberFormat.getNumberInstance(Locale.US);
+    format.setMinimumFractionDigits(2);
+    format.setMaximumFractionDigits(2);
+    return "₦" + format.format(amount);
   }
 
   private void send(String toEmail, String subject, String bodyHtml) {

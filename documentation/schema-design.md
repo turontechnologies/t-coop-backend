@@ -163,9 +163,27 @@ everyone" rule). Read receipts are per-member so "read" state follows the
 person across devices, not just the browser's localStorage like the mock.
 
 ### `subscription_payments`
-One row per manual subscription payment recorded for a co-op. Standing
-(`Active`/`Overdue`) is the most recent payment's status — no separate
-"standing" table needed.
+One row per subscription payment (manual or gateway-confirmed) recorded for a co-op. Standing
+(`Active`/`Overdue`) is computed live from `cooperatives.subscription_expires_at`, not stored
+here. `resulting_expires_at` (V10/V11) snapshots what that specific payment extended the
+subscription to, so a receipt regenerated later stays accurate regardless of later renewals.
+`cycle` is free text — a label snapshot from whichever `subscription_plans` row was used at the
+time, not a foreign key, so deleting a plan never corrupts history.
+
+### `subscription_plans` (V12)
+The super admin's own editable price list (Payment Settings -> Subscription Plans) — what
+`GET /api/v1/subscriptions/me` offers a co-op to pay for, and what the manual-recording picker
+offers a super admin. `duration_in_days` is the flexible unit (no fixed Weekly/Monthly/
+Quarterly/Yearly enum, unlike the columns above it were originally constrained to before V13
+dropped those CHECK constraints) — a plan can be any length. `type` (`New Subscription` /
+`Renewal`) prices those two situations independently. Nothing else in the schema references
+this table by foreign key; a payment only ever copies its label/duration at the time.
+
+### `subscription_payment_intents`
+The bridge between a self-service payment's `initialize` and `confirm` steps — see
+`documentation/flows.md`'s subscription lifecycle section. `duration_in_days` (V13) carries the
+plan's exact duration forward so `confirm` never has to re-derive "how many days does this
+label mean" from free text.
 
 ### `platform_fee_settings`
 Singleton row (`id = 1`) for super-admin-level settings: the platform's

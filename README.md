@@ -141,6 +141,13 @@ src/main/java/com/turontechnologies/tcoop/
   profile/                       GET/PATCH /api/v1/profile (self-service), POST /profile/password
   settings/                      PlatformSettings singleton — GET/PATCH /api/v1/settings/fees,
                                   /settings/collection-account, /settings/integrations (super admin)
+  subscription/                  SubscriptionPayment/SubscriptionPaymentIntent/SubscriptionPlan
+                                  entities + repos, SubscriptionController (super-admin manual
+                                  recording + the admin's self-service /subscriptions/me*
+                                  Paystack/Flutterwave checkout), SubscriptionPlanController
+                                  (super-admin CRUD on the price list, /settings/subscription-plans),
+                                  PaymentGatewayService (real server-side verification),
+                                  SubscriptionGateFilter (the platform-wide subscription lock)
   common/                        GlobalExceptionHandler — {"error": "..."} for every endpoint
   health/                        liveness check
   upload/                        Cloudinary-backed file uploads (POST /api/v1/uploads)
@@ -156,6 +163,16 @@ src/main/resources/
     V6__add_collection_account_and_integrations.sql   adds columns to platform_fee_settings
     V7__admin_login_uses_cooperative_id.sql   renames every admin Member row's id to match its
                                     cooperative_id — a co-op logs in as itself, not a separate AD-XXXX id
+    V8__subscriptions.sql          adds subscription_cycle/subscription_expires_at to cooperatives,
+                                    type/cycle to subscription_payments
+    V9__subscription_payment_intents.sql   the initialize/confirm bridge table for self-service gateway payments
+    V10__subscription_payment_resulting_expiry.sql   adds resulting_expires_at (see V11 for why split)
+    V11__backfill_subscription_payment_resulting_expiry.sql   backfills it for existing rows
+    V12__subscription_plans.sql    the super admin's editable price list, seeded with the original
+                                    Weekly/Monthly/Quarterly/Yearly figures as real editable rows
+    V13__flexible_subscription_cycle_labels.sql   drops the old fixed-enum CHECK constraints on
+                                    cycle/subscription_cycle columns now that a "cycle" is
+                                    whatever label a subscription_plans row has
 Dockerfile                       multi-stage build (Maven -> slim JRE)
 docker-compose.yml                app + its own SQL Server, for local dev
 ```
@@ -219,9 +236,13 @@ docker-compose.yml                app + its own SQL Server, for local dev
 - [x] Platform settings (super admin only) — `GET`/`PATCH` on
       `/api/v1/settings/fees`, `/settings/collection-account`,
       `/settings/integrations`, all three backed by the same singleton row
-      (`platform_fee_settings`, `V6` added the new columns); Paystack/Flutterwave
-      credentials are stored for reference only, never read by the live
-      Paystack integration
+      (`platform_fee_settings`, `V6` added the new columns), plus full CRUD
+      on `/api/v1/settings/subscription-plans` (`GET`/`POST`/`PATCH`/`DELETE`
+      — the price list subscriptions checkout reads from, `V12`). The
+      Paystack/Flutterwave keys entered here are no longer just stored for
+      reference — subscription self-service checkout (see below) reads them
+      live for real Inline checkout and real server-side transaction
+      verification
 - [x] Co-operatives (super admin only) — `GET /api/v1/cooperatives` (list),
       `GET /api/v1/cooperatives/{id}`, `POST /api/v1/cooperatives` (onboard —
       creates the co-op and provisions its admin `Member` row, id =
@@ -230,6 +251,17 @@ docker-compose.yml                app + its own SQL Server, for local dev
       name/email/phone), `PATCH /api/v1/cooperatives/{id}/status`
       (enable/disable — also locks/unlocks the admin's login); see
       `documentation/flows.md` for the full onboarding sequence
+- [x] Subscriptions — the platform-wide gate: no co-op (never-subscribed or
+      lapsed) can perform any mutating request anywhere, enforced once by
+      `SubscriptionGateFilter`. Pricing comes from an editable Subscription
+      Plans catalog (super admin, see above) — flexible durations, not a
+      fixed Weekly/Monthly/Quarterly/Yearly formula. Super admin manual
+      recording (`POST /api/v1/cooperatives/{id}/subscriptions`) and
+      self-service Paystack/Flutterwave checkout for the co-op's own admin
+      (`GET/POST /api/v1/subscriptions/me*`, real server-side verification
+      against the gateway using keys from Settings -> Integrations, never a
+      static env var); branded receipt emailed on every payment; see
+      `documentation/flows.md`'s subscription lifecycle section
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a free ngrok static domain (stable URL, unlike a
       Cloudflare quick tunnel) while Azure access is pending — see
@@ -243,8 +275,12 @@ docker-compose.yml                app + its own SQL Server, for local dev
 - [ ] Real Azure deployment (App Service or similar) — the Docker tunnel
       is a stopgap, not the destination
 - [ ] Real domain endpoints (members/savings/loans *within* a co-op,
-      notices, subscriptions) — one area at a time, per
-      `documentation/api-contracts.md`
+      notices) — one area at a time, per `documentation/api-contracts.md`
+- [ ] Flutterwave checkout is implemented against Flutterwave's documented
+      API but has not been exercised against a real Flutterwave sandbox
+      account (no test keys were available) — verify with a real
+      transaction before relying on it in production; Paystack has been
+      tested end to end with a real test-mode payment
 
 **Uploads are the one thing not yet cut over.** The frontend still uses its
 own Cloudinary keys and its own `/api/upload` route for avatars. Once the

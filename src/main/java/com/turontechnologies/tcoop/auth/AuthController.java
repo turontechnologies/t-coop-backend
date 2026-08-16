@@ -1,6 +1,8 @@
 package com.turontechnologies.tcoop.auth;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.cooperative.Cooperative;
+import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,19 +24,30 @@ public class AuthController {
       "Your account is not active. Please contact Turon Technologies for assistance.";
 
   private final MemberRepository memberRepository;
+  private final CooperativeRepository cooperativeRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final AuditLogService auditLogService;
 
   public AuthController(
       MemberRepository memberRepository,
+      CooperativeRepository cooperativeRepository,
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
       AuditLogService auditLogService) {
     this.memberRepository = memberRepository;
+    this.cooperativeRepository = cooperativeRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
     this.auditLogService = auditLogService;
+  }
+
+  private MemberDto toDto(Member member) {
+    Cooperative coop =
+        "admin".equals(member.getRole()) && member.getCooperativeId() != null
+            ? cooperativeRepository.findById(member.getCooperativeId()).orElse(null)
+            : null;
+    return MemberDto.from(member, coop);
   }
 
   @PostMapping("/api/v1/auth/login")
@@ -61,21 +74,25 @@ public class AuthController {
         member.getEmail(),
         "Success",
         httpRequest);
-    return ResponseEntity.ok(new LoginResponse(token, MemberDto.from(member)));
+    return ResponseEntity.ok(new LoginResponse(token, toDto(member)));
   }
 
   @GetMapping("/api/v1/auth/me")
   public ResponseEntity<?> me(Authentication authentication) {
-    // authentication is set by JwtAuthenticationFilter; SecurityConfig already
-    // guarantees this endpoint isn't reached without a valid token.
-    String memberId = (String) authentication.getPrincipal();
+    // /api/v1/auth/** is permitAll() in SecurityConfig (so login/forgot-password work
+    // unauthenticated), so this endpoint IS reachable with no token or a garbage one —
+    // JwtAuthenticationFilter simply never populates `authentication` in that case.
+    String memberId = resolveMemberId(authentication);
+    if (memberId == null) {
+      return ResponseEntity.status(401).body(Map.of("error", "Authentication required"));
+    }
     var member = memberRepository.findById(memberId).orElse(null);
 
     if (member == null) {
       return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
     }
 
-    return ResponseEntity.ok(MemberDto.from(member));
+    return ResponseEntity.ok(toDto(member));
   }
 
   @PostMapping("/api/v1/auth/logout")

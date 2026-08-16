@@ -110,6 +110,73 @@ they change it. This makes "how many co-ops has super admin onboarded" and "how 
 accounts exist" the same number by construction, and every `Member` row with
 `cooperativeId` = that co-op's id (role `admin` or `member`) is exactly that admin's roster.
 
+## Subscription lifecycle flow
+
+A co-op can act on the platform only while its subscription is paid up (`SubscriptionGateFilter`
+enforces this on every mutating request platform-wide) — including a co-op that has *never*
+paid, not just one that lapsed. There are two ways to pay: the super admin records a payment
+they witnessed happen externally, or the co-op's own admin pays for real via Paystack/
+Flutterwave from `/support` (the one page a dormant admin can still reach).
+
+```mermaid
+sequenceDiagram
+    participant Admin as Co-op admin (Browser)
+    participant F as Frontend
+    participant B as Spring Boot backend
+    participant GW as Paystack/Flutterwave
+    participant DB as Azure SQL / MSSQL
+
+    Note over Admin,DB: Every write Admin attempts anywhere else in the app gets 402\n"subscription expired" from SubscriptionGateFilter until this succeeds.
+
+    Admin->>F: Open /support, pick a plan (from the super admin's own Subscription\nPlans catalog) + gateway
+    F->>B: GET /api/v1/subscriptions/me
+    B->>DB: SELECT subscription_plans WHERE type = (New Subscription | Renewal) AND status = Active
+    B-->>F: availablePlans (label/duration/amount, scoped to this co-op's state),\navailable gateways + PUBLIC keys (from PlatformSettings)
+
+    Admin->>F: Click "Pay"
+    F->>B: POST /api/v1/subscriptions/me/initialize { planId, gateway }
+    B->>DB: INSERT subscription_payment_intents (reference, plan's own amount/label/duration, gateway, Pending)
+    B-->>F: { reference, amount, publicKey }
+
+    F->>GW: Open Inline checkout (publicKey, amount, reference)
+    GW-->>Admin: Real checkout UI
+    Admin->>GW: Pays
+    GW-->>F: Client-side success callback (reference)
+
+    F->>B: POST /api/v1/subscriptions/me/confirm { reference }
+    B->>GW: GET transaction verify (reference) — server-side, using the SECRET key from PlatformSettings
+    GW-->>B: { status: success, amount }
+    B->>B: amount must be >= the intent's own amount — never trusts the client's number
+    B->>DB: INSERT subscription_payments (type auto-detected: New Subscription | Renewal)
+    B->>DB: UPDATE cooperatives SET subscription_cycle, subscription_expires_at
+    B->>Admin: Emails a receipt (amount, type, cycle, next renewal date)
+    B-->>F: SubscriptionReceiptDto
+    F-->>Admin: Branded receipt (on-screen + downloadable PDF); dashboard's "expired" banner\nand /support redirect both clear on the next session refresh
+```
+
+Key design points:
+- **Pricing is a super-admin-managed catalog, not a formula.** `SubscriptionPlan` (Payment
+  Settings → Subscription Plans) is freely addable/editable/deletable, with a flexible
+  `durationInDays` (not a fixed Weekly/Monthly/Quarterly/Yearly enum) and separate prices for
+  New Subscription vs. Renewal. `GET /subscriptions/me` only ever offers `Active` plans of the
+  type matching this co-op's current state.
+- **Never trust a client-supplied amount.** `initialize` is the only place a price is decided
+  (straight from the chosen plan), and `confirm` re-verifies against the real gateway API
+  before ever writing a `subscription_payments` row — a manipulated checkout amount can't sneak
+  a cheap plan past the system.
+- **Keys come from `PlatformSettings`, never a static env var.** `PaymentGatewayService` reads
+  whatever the super admin entered in Settings → Integrations at the moment of verification —
+  same discipline the frontend's `/support` page follows for the public key it hands to
+  Paystack/Flutterwave's own checkout widget.
+- **`SubscriptionGateFilter` exempts every `/api/v1/subscriptions/me/**` route** specifically so
+  a fully-locked-out admin can still reach the one path that unlocks them.
+- **Every receipt is regenerable, not stored as a file** — `SubscriptionPayment.resultingExpiresAt`
+  (captured at the time, not read live off the co-op) is enough to rebuild an identical receipt
+  for any historical payment from `/support`'s transaction history, weeks or years later.
+- **The super admin's manual-entry path (`POST /cooperatives/:id/subscriptions`) and this
+  self-service path both funnel through the same `applyPayment(...)` method** — one place decides
+  what "recording a payment" means, whether the money was witnessed externally or verified live.
+
 ## Dashboard summary flow
 
 ```mermaid

@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "cooperatives")
@@ -35,6 +36,12 @@ public class Cooperative {
 
   @Column(name = "withdrawal_fee_percent")
   private BigDecimal withdrawalFeePercent;
+
+  @Column(name = "subscription_cycle")
+  private String subscriptionCycle;
+
+  @Column(name = "subscription_expires_at")
+  private LocalDate subscriptionExpiresAt;
 
   protected Cooperative() {
     // JPA
@@ -117,6 +124,29 @@ public class Cooperative {
 
   public BigDecimal getWithdrawalFeePercent() {
     return withdrawalFeePercent;
+  }
+
+  public String getSubscriptionCycle() {
+    return subscriptionCycle;
+  }
+
+  public LocalDate getSubscriptionExpiresAt() {
+    return subscriptionExpiresAt;
+  }
+
+  /**
+   * A co-op can act on the platform only while this is true — null (never subscribed) and a
+   * past date (lapsed) are treated identically. See SubscriptionGateFilter, the single
+   * enforcement point for this rule across every endpoint.
+   */
+  public boolean hasActiveSubscription() {
+    return subscriptionExpiresAt != null && !subscriptionExpiresAt.isBefore(LocalDate.now());
+  }
+
+  /** Applied whenever a subscription payment is recorded — extends/starts the current period. */
+  public void recordSubscriptionPayment(String cycle, LocalDate newExpiresAt) {
+    this.subscriptionCycle = cycle;
+    this.subscriptionExpiresAt = newExpiresAt;
   }
 
   /** Editable profile fields — never touches id/status/currency/subscriptionFee. */
