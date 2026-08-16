@@ -226,4 +226,8 @@ public class Member {
   public void changePassword(String newPasswordHash) {
     this.passwordHash = newPasswordHash;
   }
+
+  public void setStatus(String status) {
+    this.status = status;
+  }
 }

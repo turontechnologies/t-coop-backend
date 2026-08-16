@@ -122,6 +122,7 @@ public class Cooperative {
   /** Editable profile fields — never touches id/status/currency/subscriptionFee. */
   public void updateDetails(
       String name,
+      String adminName,
       String contactEmail,
       String contactPhone,
       String address,
@@ -129,6 +130,7 @@ public class Cooperative {
       String state,
       String city) {
     this.name = name;
+    this.adminName = adminName;
     this.contactEmail = contactEmail;
     this.contactPhone = contactPhone;
     this.address = address;

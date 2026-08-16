@@ -81,19 +81,24 @@ including how to expose this publicly with an ngrok tunnel (or Cloudflare's,
 if ngrok isn't available) while Azure access is pending. Already set this
 up before? Jump to **Daily startup** above instead.
 
-Demo accounts (password `admin123` for all three, same IDs as the
-frontend's mock users):
+Demo accounts (password `admin123` for both):
 
 | ID | Role |
 |---|---|
 | `SA-0001` | super_admin |
-| `AD-0001` | admin |
 | `MB-0001` | member |
+
+There's no standalone demo admin account — a co-op **is** its admin login.
+Onboarding a co-op via `POST /cooperatives` creates its admin as a `Member`
+row whose `id` equals the co-op's own `id`, password `admin123` by default
+(see `documentation/flows.md`'s co-operative onboarding section). `COOP-0001`
+(originally seeded by `V2` as a separate `AD-0001` row, renamed onto this
+scheme by `V7`) works as a ready-made admin login:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"membershipId":"AD-0001","password":"admin123"}'
+  -d '{"membershipId":"COOP-0001","password":"admin123"}'
 ```
 
 ## Running without Docker (against Azure, once provisioned)
@@ -126,7 +131,8 @@ src/main/java/com/turontechnologies/tcoop/
   config/                        cross-cutting config (CORS, Cloudinary, security, …)
   auth/                          JWT issuing/validation, login, /auth/me, /auth/logout
   member/                        Member entity + repository
-  cooperative/                   Cooperative entity + repository (read-only so far)
+  cooperative/                   Cooperative entity + repository + controller — full CRUD,
+                                  admin provisioning (super admin only)
   savings/                       SavingsType/SavingsRecord entities + repositories
   loan/                          LoanType/LoanRecord entities + repositories
   audit/                         AuditLog entity/service/controller — every login/logout/
@@ -148,6 +154,8 @@ src/main/resources/
     V4__seed_member_profiles.sql   fills in demo accounts' profile fields (bank, NIN, address, …)
     V5__fix_profile_audit_log_labels.sql   corrects historical audit_log rows to the right module/action
     V6__add_collection_account_and_integrations.sql   adds columns to platform_fee_settings
+    V7__admin_login_uses_cooperative_id.sql   renames every admin Member row's id to match its
+                                    cooperative_id — a co-op logs in as itself, not a separate AD-XXXX id
 Dockerfile                       multi-stage build (Maven -> slim JRE)
 docker-compose.yml                app + its own SQL Server, for local dev
 ```
@@ -183,9 +191,13 @@ docker-compose.yml                app + its own SQL Server, for local dev
 - [x] Cloudinary upload endpoint (`POST /api/v1/uploads`), mirroring the
       frontend's existing `/api/upload` route
 - [x] Auth — `POST /api/v1/auth/login` (JWT), `GET /api/v1/auth/me`,
-      `POST /api/v1/auth/logout`, bcrypt password hashing, three seeded
-      demo accounts matching the frontend's mock users, every login/logout
-      audit-logged (`audit_log` table)
+      `POST /api/v1/auth/logout`, bcrypt password hashing, seeded
+      super_admin/member demo accounts (a co-op's admin is provisioned by
+      onboarding a co-op, not seeded separately — see below), every
+      login/logout audit-logged (`audit_log` table); a non-Active member
+      gets a distinct 403 "account not active" message instead of the
+      generic invalid-credentials one, but only once the password has
+      already matched
 - [x] Dashboard — `GET /api/v1/dashboard/summary`, role-aware (platform-wide
       for `super_admin`, co-op-scoped for `admin`, personal for `member`),
       cards + recentActivity computed from real `savings_records` /
@@ -210,6 +222,14 @@ docker-compose.yml                app + its own SQL Server, for local dev
       (`platform_fee_settings`, `V6` added the new columns); Paystack/Flutterwave
       credentials are stored for reference only, never read by the live
       Paystack integration
+- [x] Co-operatives (super admin only) — `GET /api/v1/cooperatives` (list),
+      `GET /api/v1/cooperatives/{id}`, `POST /api/v1/cooperatives` (onboard —
+      creates the co-op and provisions its admin `Member` row, id =
+      cooperative id, default password `admin123`, welcome email sent),
+      `PATCH /api/v1/cooperatives/{id}` (edit — also syncs the admin's own
+      name/email/phone), `PATCH /api/v1/cooperatives/{id}/status`
+      (enable/disable — also locks/unlocks the admin's login); see
+      `documentation/flows.md` for the full onboarding sequence
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a free ngrok static domain (stable URL, unlike a
       Cloudflare quick tunnel) while Azure access is pending — see
@@ -222,7 +242,7 @@ docker-compose.yml                app + its own SQL Server, for local dev
       see the team for the connection details once it exists)
 - [ ] Real Azure deployment (App Service or similar) — the Docker tunnel
       is a stopgap, not the destination
-- [ ] Real domain endpoints (co-operatives, savings/loan write paths,
+- [ ] Real domain endpoints (members/savings/loans *within* a co-op,
       notices, subscriptions) — one area at a time, per
       `documentation/api-contracts.md`
 

@@ -12,7 +12,11 @@ Implemented as [`V1__init_schema.sql`](../src/main/resources/db/migration/V1__in
 
 - **Business-assigned, human-meaningful IDs stay as the primary key** and
   are `NVARCHAR`, not surrogate ints — `cooperatives.id` (`COOP-0001`),
-  `members.id` (`AD-0001`, membership ID doubles as the login ID and the PK).
+  `members.id` (membership ID doubles as the login ID and the PK). A co-op's
+  admin `Member` row deliberately reuses the co-op's own id as its id — a
+  co-op logs in as itself (see `V7__admin_login_uses_cooperative_id.sql` and
+  `flows.md`'s co-operative onboarding section) — rather than a separately
+  generated one, so there's exactly one admin id per co-op by construction.
   These are IDs a human reads, types, or references in support conversations.
 - **Everything else uses `UNIQUEIDENTIFIER` (GUID), server-generated**
   (`DEFAULT NEWID()`) — savings records, loan records, notices, requests,
@@ -53,7 +57,7 @@ erDiagram
         nvarchar status
     }
     MEMBERS {
-        nvarchar id PK "AD-0001 / MB-0001"
+        nvarchar id PK "COOP-0001 (admin) / MB-0001 (member)"
         nvarchar cooperative_id FK "null for super_admin"
         nvarchar role "super_admin / admin / member"
         nvarchar password_hash
@@ -108,12 +112,17 @@ One table for all three roles (`super_admin`, `admin`, `member`) — matches
 `cooperative_id` is null for `super_admin` (platform-wide), set for
 `admin`/`member` (scoped to one co-op). Password is stored as a hash
 (`password_hash`), never plaintext — the current mock's plaintext
-`mock-users.ts` is exactly what this replaces.
+`mock-users.ts` is exactly what this replaces. A co-op's admin row's `id`
+equals its `cooperative_id` (see ID strategy above) — that row is what the
+admin actually logs in and self-edits as.
 
 ### `cooperatives`
-One row per co-op. `admin_name`/`contact_email` etc. are kept as plain
-columns (matching the mock) rather than always joining to `members` —
-simpler for the list endpoint that needs to return them directly.
+One row per co-op. `admin_name`/`contact_email`/`contact_phone` are kept as
+plain columns (matching the mock, and needed so the list endpoint can return
+them without an extra join) but are **denormalized copies** of the admin
+`Member` row's name/email/phone — `CooperativeController` writes both on
+every relevant create/update so they never drift out of sync (see
+`flows.md`'s co-operative onboarding section).
 `currency` (ISO 4217) and `withdrawal_fee_percent` live here per the
 currency-conversion and withdrawal-fee features already built on the
 frontend.

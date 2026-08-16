@@ -16,16 +16,21 @@ Three roles: `super_admin` (oversees all co-ops), `admin` (manages one co-op), `
 
 ```json
 // Request
-{ "membershipId": "AD-0001", "password": "string", "keepLoggedIn": true }
+{ "membershipId": "COOP-0001", "password": "string", "keepLoggedIn": true }
 
 // Response
 {
   "token": "string",
-  "member": { "id": "AD-0001", "name": "string", "email": "string", "role": "admin", "avatarUrl": "string?" }
+  "member": { "id": "COOP-0001", "name": "string", "email": "string", "role": "admin", "avatarUrl": "string?" }
 }
 ```
 
-Login is by **membership ID**, not email.
+Login is by **membership ID**, not email. A co-op's admin logs in with the **co-op's own ID**
+(there's no separate `AD-XXXX` admin ID — see §2). A member who is not `Active` gets a
+distinct `403 { "error": "Your account is not active. Please contact Turon Technologies for
+assistance." }` instead of the generic invalid-credentials message — but only once the
+password has already matched, so a wrong-password guess against a disabled account still
+gets the generic message and can't be used to fish for which accounts are disabled.
 
 ### `POST /auth/forgot-password`
 
@@ -89,6 +94,13 @@ Sends the OTP by email/SMS server-side. **Do not return the OTP in the response*
 
 ## 2. Cooperatives (super_admin only)
 
+**A co-op IS its admin account.** Onboarding a co-op creates exactly one `Member` row
+(`role: "admin"`) whose `id` is the co-op's own `id` — not a separately generated one. That
+admin logs in with the co-op ID and the platform default password (`admin123`), and is
+expected to change it from Settings. This keeps "how many co-ops has super admin onboarded"
+and "how many admins exist" the same number by construction, and means the co-op's members
+(`Member` rows with `cooperativeId` = that co-op's id) are exactly that admin's members.
+
 ### `GET /cooperatives`
 
 Returns list with computed totals (backend computes `totalSavings`, `totalLoans` — don't make the frontend sum records).
@@ -145,11 +157,39 @@ Same shape as one list item, plus `savingsByType` and `loansByType` breakdowns:
 }
 ```
 
+### `PATCH /cooperatives/:id`
+
+```json
+// Request — editable fields only; id/status/currency/subscriptionFee are untouched
+{
+  "name": "string",
+  "adminFirstName": "string",
+  "adminLastName": "string",
+  "contactEmail": "string",
+  "contactPhone": "string",
+  "address": "string",
+  "country": "string",
+  "state": "string",
+  "city": "string"
+}
+// Response: the updated Cooperative (same shape as GET /cooperatives item)
+```
+
+Since the co-op's admin identity lives on the same `Member` row the admin logs in and edits
+their own profile as (see above), this endpoint also writes `adminFirstName`/`adminLastName`/
+`contactEmail`/`contactPhone` through to that row — a super admin's edit here is what the
+admin sees reflected in their own portal, immediately, with no separate sync step.
+
 ### `PATCH /cooperatives/:id/status`
 
 ```json
 { "status": "Active|Disabled" }
 ```
+
+Disabling a co-op also flips its admin `Member` row's status (mapped to `Inactive`, since
+`Member.status` only allows `Active|Inactive` while `Cooperative.status` allows
+`Active|Disabled`) — so a disabled co-op's admin is locked out of login immediately, with
+the friendly "account not active" message from §1.
 
 ---
 

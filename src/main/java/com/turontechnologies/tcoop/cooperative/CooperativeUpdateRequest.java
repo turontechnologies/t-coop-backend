@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Pattern;
 
 public record CooperativeUpdateRequest(
     @NotBlank(message = "Enter the co-operative name") String name,
+    @NotBlank(message = "Enter the admin's first name") String adminFirstName,
+    @NotBlank(message = "Enter the admin's last name") String adminLastName,
     @NotBlank(message = "This is not a valid email")
         @Email(message = "This is not a valid email")
         String contactEmail,

@@ -9,7 +9,6 @@ import com.turontechnologies.tcoop.auth.EmailDeliveryException;
 import com.turontechnologies.tcoop.auth.EmailService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -26,7 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Super-admin-only co-operative onboarding and management — list, create (which also provisions
- * the co-op's first admin account and emails them their login credentials), read, update, and
+ * the co-op's admin account — the co-op logs in as itself, using its own co-op ID and the
+ * platform default password — and emails the admin their login details), read, update, and
  * activate/disable. See documentation/flows.md for the full onboarding sequence.
  */
 @RestController
@@ -34,9 +34,9 @@ public class CooperativeController {
 
   private static final Logger log = LoggerFactory.getLogger(CooperativeController.class);
   private static final List<String> MEMBER_ROLES = List.of("admin", "member");
-  private static final SecureRandom RANDOM = new SecureRandom();
-  private static final String TEMP_PASSWORD_CHARS =
-      "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+
+  /** Every co-op's admin account starts with this password; they're expected to change it. */
+  private static final String DEFAULT_ADMIN_PASSWORD = "admin123";
 
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
@@ -101,6 +101,10 @@ public class CooperativeController {
       return ResponseEntity.status(409)
           .body(Map.of("error", "That email address is already in use by another account"));
     }
+    if (memberRepository.existsById(request.coopId())) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "That co-op ID is already in use. Please choose another."));
+    }
 
     Cooperative coop =
         new Cooperative(
@@ -115,17 +119,39 @@ public class CooperativeController {
             request.city());
     cooperativeRepository.save(coop);
 
-    String adminId = generateAdminId();
-    String temporaryPassword = generateTemporaryPassword();
+    // The co-op IS the admin account — it logs in with its own co-op ID, not a separately
+    // generated one, so that "how many co-ops has super admin onboarded" and "how many admins
+    // exist" are always the same number by construction.
     Member admin =
         new Member(
-            adminId,
+            coop.getId(),
             coop.getId(),
             "admin",
-            passwordEncoder.encode(temporaryPassword),
+            passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD),
             request.adminFirstName(),
             request.adminLastName(),
             request.contactEmail());
+    // The create constructor only sets id/role/passwordHash/firstName/lastName/email — the
+    // rest of the admin's own profile (address, phone, country/state/city) starts out matching
+    // the co-op's own details rather than sitting blank until the admin fills it in themselves.
+    admin.updateProfile(
+        request.adminFirstName(),
+        request.adminLastName(),
+        null,
+        null,
+        request.contactPhone(),
+        request.contactEmail(),
+        null,
+        request.address(),
+        request.country(),
+        request.state(),
+        request.city(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
     memberRepository.save(admin);
 
     // The co-op and admin account both already exist at this point regardless of whether the
@@ -135,7 +161,11 @@ public class CooperativeController {
     // is logged, not surfaced as a request failure.
     try {
       emailService.sendAdminWelcomeEmail(
-          request.contactEmail(), admin.getFullName(), coop.getName(), adminId, temporaryPassword);
+          request.contactEmail(),
+          admin.getFullName(),
+          coop.getName(),
+          coop.getId(),
+          DEFAULT_ADMIN_PASSWORD);
     } catch (EmailDeliveryException e) {
       log.warn(
           "Co-op {} created but welcome email to {} failed: {}",
@@ -172,6 +202,7 @@ public class CooperativeController {
 
     coop.updateDetails(
         request.name(),
+        request.adminFirstName() + " " + request.adminLastName(),
         request.contactEmail(),
         request.contactPhone(),
         request.address(),
@@ -179,6 +210,33 @@ public class CooperativeController {
         request.state(),
         request.city());
     cooperativeRepository.save(coop);
+
+    // The co-op's admin Member row (id == coop id) is what the admin actually logs in and edits
+    // their own profile as, so a super-admin edit here has to reach it too — otherwise the admin
+    // portal would keep showing the old name/email/phone after this save. Every other profile
+    // field (NIN, bank details, etc.) is preserved as-is since this form doesn't touch them.
+    Member admin = memberRepository.findById(id).orElse(null);
+    if (admin != null) {
+      admin.updateProfile(
+          request.adminFirstName(),
+          request.adminLastName(),
+          admin.getOtherName(),
+          admin.getGender(),
+          request.contactPhone(),
+          request.contactEmail(),
+          admin.getNin(),
+          request.address(),
+          request.country(),
+          request.state(),
+          request.city(),
+          admin.getFacebook(),
+          admin.getTwitter(),
+          admin.getGuarantor(),
+          admin.getBankCode(),
+          admin.getAccountNumber(),
+          admin.getAccountName());
+      memberRepository.save(admin);
+    }
 
     auditLogService.log(
         adminIdOf(authentication),
@@ -208,6 +266,15 @@ public class CooperativeController {
 
     coop.setStatus(request.status());
     cooperativeRepository.save(coop);
+
+    // The admin logs in as the co-op, so disabling the co-op has to lock that login out too.
+    // Member.status only allows Active/Inactive (Cooperative uses Active/Disabled), so map
+    // Disabled -> Inactive here.
+    Member admin = memberRepository.findById(id).orElse(null);
+    if (admin != null) {
+      admin.setStatus("Disabled".equals(request.status()) ? "Inactive" : "Active");
+      memberRepository.save(admin);
+    }
 
     auditLogService.log(
         adminIdOf(authentication),
@@ -240,23 +307,6 @@ public class CooperativeController {
         memberCount,
         totalSavings,
         totalLoans);
-  }
-
-  private String generateAdminId() {
-    long n = memberRepository.countByRoleIn(List.of("admin")) + 1;
-    String candidate;
-    do {
-      candidate = String.format("AD-%04d", n++);
-    } while (memberRepository.existsById(candidate));
-    return candidate;
-  }
-
-  private String generateTemporaryPassword() {
-    StringBuilder password = new StringBuilder(12);
-    for (int i = 0; i < 12; i++) {
-      password.append(TEMP_PASSWORD_CHARS.charAt(RANDOM.nextInt(TEMP_PASSWORD_CHARS.length())));
-    }
-    return password.toString();
   }
 
   private String adminIdOf(Authentication authentication) {

@@ -73,8 +73,8 @@ public class EmailService {
       String toEmail,
       String recipientName,
       String cooperativeName,
-      String membershipId,
-      String temporaryPassword) {
+      String coopId,
+      String defaultPassword) {
     String firstName = firstNameOf(recipientName);
 
     String body =
@@ -84,24 +84,24 @@ public class EmailService {
             + "Your admin account is ready</h1>"
             + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
             + "Hi " + escapeHtml(firstName) + ", " + escapeHtml(cooperativeName)
-            + " has been onboarded to T-Cooperative and you've been set up as its "
-            + "administrator. Sign in with the credentials below, then change your "
-            + "password from Settings.</p>"
+            + " has been onboarded to T-Cooperative. Your co-operative's ID is also your "
+            + "login ID — sign in with the credentials below, then change your password "
+            + "from Settings.</p>"
             + "<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;"
             + "border-collapse:collapse;\">"
             + "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
             + "border-radius:8px 8px 0 0;border-bottom:none;\">"
             + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
-            + "letter-spacing:0.06em;\">Membership ID</p>"
+            + "letter-spacing:0.06em;\">Co-op ID (your login ID)</p>"
             + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;"
-            + "font-family:monospace;\">" + escapeHtml(membershipId) + "</p>"
+            + "font-family:monospace;\">" + escapeHtml(coopId) + "</p>"
             + "</td></tr>"
             + "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
             + "border-radius:0 0 8px 8px;\">"
             + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
-            + "letter-spacing:0.06em;\">Temporary password</p>"
+            + "letter-spacing:0.06em;\">Default password</p>"
             + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;"
-            + "font-family:monospace;\">" + escapeHtml(temporaryPassword) + "</p>"
+            + "font-family:monospace;\">" + escapeHtml(defaultPassword) + "</p>"
             + "</td></tr>"
             + "</table>"
             + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"

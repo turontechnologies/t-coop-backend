@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
   private static final String INVALID_CREDENTIALS = "Invalid membership ID or password";
+  private static final String ACCOUNT_NOT_ACTIVE =
+      "Your account is not active. Please contact Turon Technologies for assistance.";
 
   private final MemberRepository memberRepository;
   private final PasswordEncoder passwordEncoder;
@@ -40,10 +42,14 @@ public class AuthController {
       @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
     var member = memberRepository.findById(request.membershipId()).orElse(null);
 
-    if (member == null
-        || !"Active".equals(member.getStatus())
-        || !passwordEncoder.matches(request.password(), member.getPasswordHash())) {
+    if (member == null || !passwordEncoder.matches(request.password(), member.getPasswordHash())) {
       return ResponseEntity.status(401).body(Map.of("error", INVALID_CREDENTIALS));
+    }
+
+    // Only reveal "account disabled" once the password has already proven who's asking —
+    // otherwise an anonymous guesser could use this response to fish for disabled accounts.
+    if (!"Active".equals(member.getStatus())) {
+      return ResponseEntity.status(403).body(Map.of("error", ACCOUNT_NOT_ACTIVE));
     }
 
     String token = jwtService.generateToken(member);

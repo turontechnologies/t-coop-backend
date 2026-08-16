@@ -20,16 +20,20 @@ sequenceDiagram
     B->>DB: SELECT member WHERE id = :membershipId
     DB-->>B: member row (password_hash, role, status)
     B->>B: BCrypt.matches(password, password_hash)
-    alt credentials valid and member Active
+    alt wrong id or password
+        B-->>T: 401 { error: "Invalid membership ID or password" }
+        T-->>F: 401 { error }
+        F-->>U: show "Invalid membership ID or password"
+    else password correct but member not Active
+        B-->>T: 403 { error: "Your account is not active. Please contact Turon Technologies for assistance." }
+        T-->>F: 403 { error }
+        F-->>U: show the friendly "account not active" message
+    else credentials valid and member Active
         B->>DB: INSERT audit_log (Authentication / Login / Success)
         B-->>T: 200 { token, member }
         T-->>F: 200 { token, member }
         F->>F: store token + member in Zustand (persisted)
         F-->>U: redirect to /dashboard
-    else invalid
-        B-->>T: 401 { error }
-        T-->>F: 401 { error }
-        F-->>U: show "Invalid membership ID or password"
     end
 
     Note over U,B: Every later request attaches Authorization: Bearer <token>
@@ -67,6 +71,44 @@ responses actually carrying CORS headers even when Spring Security
 generates them directly (see api-conventions.md § CORS) — without that, the
 browser reports a CORS failure instead of a 401 and this redirect never
 fires.
+
+## Co-operative onboarding flow
+
+A co-op **is** its admin account — onboarding creates one `Cooperative` row and exactly one
+`Member` row (`role: "admin"`) sharing the same `id`, so the co-op logs in as itself.
+
+```mermaid
+sequenceDiagram
+    participant SA as Super admin (Browser)
+    participant F as Frontend
+    participant B as Spring Boot backend
+    participant DB as Azure SQL / MSSQL
+    participant Mail as Gmail SMTP
+
+    SA->>F: Submit "Add Co-operative" (coopId, coopName, adminFirstName/LastName, contactEmail, ...)
+    F->>B: POST /api/v1/cooperatives (Bearer token, super_admin only)
+    B->>DB: exists member.email = contactEmail? / exists cooperative.id = coopId?
+    alt either already taken
+        B-->>F: 409 { error }
+    else free
+        B->>DB: INSERT cooperatives (id = coopId, status = Active, ...)
+        B->>DB: INSERT members (id = coopId, cooperative_id = coopId, role = "admin",\npassword_hash = bcrypt("admin123"), status = Active)
+        B->>Mail: send welcome email (co-op ID = login ID, default password)
+        Note over B,Mail: delivery failure is logged, not rolled back —\nthe admin can always use "Forgot password" instead
+        B->>DB: INSERT audit_log (Co-operatives / Create / Success)
+        B-->>F: 200 { the created co-op summary }
+    end
+
+    Note over SA,DB: Editing later (PATCH /cooperatives/:id) writes name/address fields\nto the Cooperative row AND first/last name, email, phone to the same\nMember row — the admin's own portal reflects the change immediately,\nsince it's the same row they log in and self-edit as.
+
+    Note over SA,DB: Disabling (PATCH /cooperatives/:id/status, "Disabled") also flips\nthe admin Member row to Inactive — its next login attempt gets a 403\n"account not active" instead of getting in.
+```
+
+Nothing about this generates a second, separate `AD-XXXX` admin ID — the co-op ID *is* the
+membership ID an admin logs in with, using the platform default password (`admin123`) until
+they change it. This makes "how many co-ops has super admin onboarded" and "how many admin
+accounts exist" the same number by construction, and every `Member` row with
+`cooperativeId` = that co-op's id (role `admin` or `member`) is exactly that admin's roster.
 
 ## Dashboard summary flow
 
