@@ -5,8 +5,11 @@ import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import com.turontechnologies.tcoop.platformstaff.PlatformRole;
+import com.turontechnologies.tcoop.platformstaff.PlatformRoleRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -25,6 +28,7 @@ public class AuthController {
 
   private final MemberRepository memberRepository;
   private final CooperativeRepository cooperativeRepository;
+  private final PlatformRoleRepository platformRoleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final AuditLogService auditLogService;
@@ -32,11 +36,13 @@ public class AuthController {
   public AuthController(
       MemberRepository memberRepository,
       CooperativeRepository cooperativeRepository,
+      PlatformRoleRepository platformRoleRepository,
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
       AuditLogService auditLogService) {
     this.memberRepository = memberRepository;
     this.cooperativeRepository = cooperativeRepository;
+    this.platformRoleRepository = platformRoleRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
     this.auditLogService = auditLogService;
@@ -47,13 +53,26 @@ public class AuthController {
         "admin".equals(member.getRole()) && member.getCooperativeId() != null
             ? cooperativeRepository.findById(member.getCooperativeId()).orElse(null)
             : null;
-    return MemberDto.from(member, coop);
+    List<String> permissionModules =
+        "support".equals(member.getRole()) && member.getPlatformRoleId() != null
+            ? platformRoleRepository
+                .findById(member.getPlatformRoleId())
+                .map(PlatformRole::getPermissions)
+                .orElse(List.of())
+            : null;
+    return MemberDto.from(member, coop, permissionModules);
   }
 
   @PostMapping("/api/v1/auth/login")
   public ResponseEntity<?> login(
       @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-    var member = memberRepository.findById(request.membershipId()).orElse(null);
+    // Flexible on purpose: a co-op/member's own id, or any account's email, both work here —
+    // platform staff in particular only ever know their email, never a "membership ID".
+    var member =
+        memberRepository
+            .findById(request.membershipId())
+            .or(() -> memberRepository.findByEmail(request.membershipId()))
+            .orElse(null);
 
     if (member == null || !passwordEncoder.matches(request.password(), member.getPasswordHash())) {
       return ResponseEntity.status(401).body(Map.of("error", INVALID_CREDENTIALS));

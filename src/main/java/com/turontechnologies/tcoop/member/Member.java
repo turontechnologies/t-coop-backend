@@ -4,6 +4,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "members")
@@ -65,6 +67,22 @@ public class Member {
   private String avatarUrl;
 
   private String status;
+
+  /** Only ever set for role "support" (platform staff) — see PlatformRole. */
+  @Column(name = "platform_role_id")
+  private UUID platformRoleId;
+
+  @Column(name = "invite_token")
+  private String inviteToken;
+
+  @Column(name = "invite_token_expires_at")
+  private LocalDateTime inviteTokenExpiresAt;
+
+  @Column(name = "invited_at")
+  private LocalDateTime invitedAt;
+
+  @Column(name = "accepted_at")
+  private LocalDateTime acceptedAt;
 
   protected Member() {
     // JPA
@@ -235,5 +253,57 @@ public class Member {
    * self-service profile edit never touches this. */
   public void setRole(String role) {
     this.role = role;
+  }
+
+  public UUID getPlatformRoleId() {
+    return platformRoleId;
+  }
+
+  public void setPlatformRoleId(UUID platformRoleId) {
+    this.platformRoleId = platformRoleId;
+  }
+
+  public String getInviteToken() {
+    return inviteToken;
+  }
+
+  public LocalDateTime getInviteTokenExpiresAt() {
+    return inviteTokenExpiresAt;
+  }
+
+  public LocalDateTime getInvitedAt() {
+    return invitedAt;
+  }
+
+  public LocalDateTime getAcceptedAt() {
+    return acceptedAt;
+  }
+
+  /** Creates an unaccepted platform-staff invite row — status stays "Invited" (login-blocked;
+   * see AuthController) until acceptInvite is called. passwordHash is a random, unusable
+   * placeholder the invitee could never know, not a nullable column. */
+  public static Member invitePlatformStaff(
+      String id, String email, UUID platformRoleId, String placeholderPasswordHash) {
+    Member member = new Member(id, null, "support", placeholderPasswordHash, "", "", email);
+    member.status = "Invited";
+    member.platformRoleId = platformRoleId;
+    member.invitedAt = LocalDateTime.now();
+    return member;
+  }
+
+  public void setInviteToken(String token, LocalDateTime expiresAt) {
+    this.inviteToken = token;
+    this.inviteTokenExpiresAt = expiresAt;
+  }
+
+  /** Turns an unaccepted invite into a real, loginable account. */
+  public void acceptInvite(String firstName, String lastName, String passwordHash) {
+    this.firstName = firstName;
+    this.lastName = lastName;
+    this.passwordHash = passwordHash;
+    this.status = "Active";
+    this.acceptedAt = LocalDateTime.now();
+    this.inviteToken = null;
+    this.inviteTokenExpiresAt = null;
   }
 }

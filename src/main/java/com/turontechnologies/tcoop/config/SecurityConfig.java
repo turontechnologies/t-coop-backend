@@ -52,7 +52,8 @@ public class SecurityConfig {
                     // must be let through Security before it ever asks "authenticated?".
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
-                    .requestMatchers("/api/health", "/api/v1/auth/**", "/error")
+                    .requestMatchers(
+                        "/api/health", "/api/v1/auth/**", "/api/v1/platform-invites/**", "/error")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

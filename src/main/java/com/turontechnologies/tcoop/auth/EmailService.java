@@ -162,6 +162,33 @@ public class EmailService {
         body);
   }
 
+  /** Platform staff invite (Settings -> User Management) — unlike the member/admin welcome
+   * emails, there's no password to show: the invitee sets their own by following the link,
+   * which is what actually activates the account (login is blocked until they do). */
+  public void sendPlatformStaffInviteEmail(
+      String toEmail, String roleName, String inviteLink) {
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">You're invited</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + "Join T-Cooperative as " + escapeHtml(roleName) + "</h1>"
+            + "<p style=\"margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "You've been invited to help operate T-Cooperative with the <strong>"
+            + escapeHtml(roleName) + "</strong> role. Click below to accept and set your "
+            + "password — this link expires in 7 days.</p>"
+            + "<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;\">"
+            + "<tr><td align=\"center\">"
+            + "<a href=\"" + inviteLink + "\" style=\"display:inline-block;padding:12px 28px;"
+            + "background:#047857;color:#ffffff;font-size:14px;font-weight:700;"
+            + "text-decoration:none;border-radius:8px;\">Accept Invite</a>"
+            + "</td></tr>"
+            + "</table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "If you weren't expecting this, you can safely ignore this email.</p>";
+
+    send(toEmail, "You're invited to T-Cooperative", body);
+  }
+
   /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
   public void sendSubscriptionReceiptEmail(
       String toEmail,
