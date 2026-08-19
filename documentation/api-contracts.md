@@ -103,7 +103,8 @@ and "how many admins exist" the same number by construction, and means the co-op
 
 ### `GET /cooperatives`
 
-Returns list with computed totals (backend computes `totalSavings`, `totalLoans` — don't make the frontend sum records).
+Returns list with computed totals (backend computes `memberCount`, `savingsTypeCount`,
+`loanTypeCount`, `totalSavings`, `totalLoans` — don't make the frontend sum/count records itself).
 
 ```json
 // Response
@@ -119,12 +120,22 @@ Returns list with computed totals (backend computes `totalSavings`, `totalLoans`
     "state": "string",
     "city": "string",
     "status": "Active|Disabled",
+    "currency": "NGN",
     "memberCount": 12,
+    "savingsTypeCount": 3,
+    "loanTypeCount": 3,
     "totalSavings": 960000,
     "totalLoans": 560000
   }
 ]
 ```
+
+`savingsTypeCount` (`SavingsTypeRepository.countByCooperativeId`) powers the super admin's
+platform-wide `/savings` oversight table's "No of Savings Types" column — not invented, not a
+hardcoded 3; a freshly onboarded co-op with none configured yet genuinely returns `0`.
+`loanTypeCount` (`LoanTypeRepository.countByCooperativeId`) does the same for `/loans` — it's
+`3` for every real co-op today only because `V17` explicitly backfilled that value, not because
+anything auto-seeds it going forward.
 
 ### `POST /cooperatives`
 
@@ -147,14 +158,36 @@ Returns list with computed totals (backend computes `totalSavings`, `totalLoans`
 
 ### `GET /cooperatives/:id`
 
-Same shape as one list item, plus `savingsByType` and `loansByType` breakdowns:
+Same shape as one list item. The savings type breakdown (`savingsByType` below this section once
+implied it'd nest here) is its own dedicated endpoint instead — see §5 — matching the
+Subscriptions super-admin pattern (§8) rather than growing this DTO. `loansByType` is still
+unbuilt.
+
+### `GET /cooperatives/:id/members` — **built**
+
+Every real member (`admin`/`member` role) of one co-op — the super-admin oversight Members tab.
+Read-only: no `PATCH` exists yet to edit a member's profile or toggle their status from this
+view (that's still the frontend's mock `useCoopStore`) — the frontend must not offer those
+actions as if they persist against this data.
 
 ```json
-{
-  ...coop fields,
-  "savingsByType": [{ "name": "Basic Savings", "min": 5000, "max": 10000, "total": 235000 }],
-  "loansByType": [{ "name": "Emergency Loan", "interestRate": 5, "durationMonths": 3, "total": 150000 }]
-}
+[
+  {
+    "id": "string",
+    "firstName": "string",
+    "lastName": "string",
+    "email": "string",
+    "role": "admin|member",
+    "status": "Active|Inactive",
+    "guarantor": "string?",
+    "country": "string?",
+    "state": "string?",
+    "city": "string?",
+    "bankCode": "string?",
+    "accountNumber": "string?",
+    "accountName": "string?"
+  }
+]
 ```
 
 ### `PATCH /cooperatives/:id`
@@ -196,21 +229,23 @@ the friendly "account not active" message from §1.
 ## 3. Members (scoped to a cooperative)
 
 ```ts
-// CoopMember shape, returned by all endpoints below
+// CoopMember shape, returned by all endpoints below (backend's `role`/`status` are actually
+// lowercase "admin"|"member"|"super_admin" — the frontend's CoopMemberDto mapper capitalizes
+// role for display; status is already "Active"|"Inactive" on both sides)
 {
   "id": "string", "firstName": "string", "lastName": "string", "email": "string",
-  "role": "Admin|Member", "status": "Active|Inactive", "guarantor": "string",
+  "role": "admin|member", "status": "Active|Inactive", "guarantor": "string",
   "country": "string", "state": "string", "city": "string",
   "bankCode": "string", "accountNumber": "string", "accountName": "string"
 }
 ```
 
-- `GET /cooperatives/:id/members` — list. `admin` role should only ever see their own co-op's members.
-- `POST /cooperatives/:id/members` — create. Request = above shape minus `id`, plus `membershipId`.
-- `POST /cooperatives/:id/members/bulk` — multipart file upload (Excel), same fields per row. Response: `{ "imported": 12, "errors": [{ "row": 3, "message": "string" }] }`.
-- `GET /cooperatives/:id/members/:memberId` — detail.
-- `PATCH /cooperatives/:id/members/:memberId` — update `firstName, lastName, email, role, guarantor, country, state, city, bankCode, accountNumber, accountName`.
-- `PATCH /cooperatives/:id/members/:memberId/status` — `{ "status": "Active|Inactive" }`.
+- `GET /cooperatives/:id/members` — **built**. `super_admin` any co-op; `admin` only their own (checked server-side against their own `cooperativeId`, never the path param).
+- `POST /cooperatives/:id/members` — **built**. Request = above shape (as `MemberCreateRequest`) minus `id`/`status`, plus `membershipId` (caller-chosen, like a co-op's own id), plus `otherName`/`gender`/`phone`/`homeAddress`/`facebook`/`twitter` (not in the read DTO but accepted on create, mirroring co-op admin onboarding). Same conventions as onboarding a co-op: password starts as the platform default (`admin123`), a welcome email goes out with the membership ID and password. 409 if the membership ID or email is already taken.
+- `POST /cooperatives/:id/members/bulk` — not yet built.
+- `GET /cooperatives/:id/members/:memberId` — not yet built as its own endpoint (the frontend finds the member client-side out of the list response instead).
+- `PATCH /cooperatives/:id/members/:memberId` — **built**. Updates `firstName, lastName, email, role, guarantor, country, state, city, bankCode, accountNumber, accountName`; fields not in this request (`otherName`, `gender`, `phone`, `nin`, `facebook`, `twitter`) are preserved as-is, never blanked.
+- `PATCH /cooperatives/:id/members/:memberId/status` — **built**. `{ "status": "Active|Inactive" }`.
 
 **Bank fields**: `accountName` is never typed by the user — it's filled in from `POST /banks/resolve` (§10) after the user picks a bank + types an account number.
 
@@ -264,22 +299,48 @@ Same shape as request body (minus `membershipId`, which is fixed). Returns the u
 
 ## 5. Savings
 
-### `GET /savings/types`
+**Super-admin oversight is built** (`SavingsController`) — read-only, backing the
+`/co-operatives/[id]/savings/...` pages. The admin/member self-service endpoints below it
+("Upload Teller", member deposit/withdrawal requests, request approval) are **not yet built** —
+that flow still lives entirely in the frontend's mock `useCoopStore`, same as before; see
+`t-coop-app/documentation/savings-page.md`. Building those against this backend is a separate,
+larger task (it needs a `SavingsRequest` entity/table wiring, and — on `Approved` + `Withdrawal`
+— the same real-payout guarantee already built for Subscriptions/Loans, per §10).
 
-```json
-[{ "name": "Basic Savings", "min": 5000, "max": 10000 }]
-```
+### `GET /cooperatives/:id/savings/types` — **built**
 
-Static catalog (3 types today) — fine as a hardcoded config endpoint or DB table.
-
-### `GET /cooperatives/:id/savings`
-
-List savings records. Supports query params `?memberId=&savingsType=&status=&from=&to=`.
+The "Members Savings" breakdown table. One row per savings product the co-op actually offers —
+no auto-seed, no invented defaults; a newly onboarded co-op legitimately returns `[]` here until
+someone deliberately configures a type (no management UI yet — the row shape supports it, this
+is purely a future task).
 
 ```json
 [
   {
-    "id": "string",
+    "id": "uuid",
+    "name": "Basic Savings",
+    "min": 5000,
+    "max": 10000,
+    "status": "Active|Inactive",
+    "earnings": 4700,
+    "total": 235000
+  }
+]
+```
+
+`earnings` is a flat 2% of `total` — illustrative, not a real interest-accrual engine (matches
+the frontend's pre-existing `SAVINGS_EARNINGS_RATE`, same honesty note as the dashboard's
+dividends figure). `total`/`earnings` only ever sum `Success`-status records.
+
+### `GET /cooperatives/:id/savings` — **built**
+
+List savings records for one co-op, newest first. Every filter is optional:
+`?memberId=&type=&status=&from=&to=` (`type` matches a savings type's **name**, not id).
+
+```json
+[
+  {
+    "id": "uuid",
     "memberId": "string",
     "memberName": "string",
     "savingsType": "string",
@@ -287,18 +348,18 @@ List savings records. Supports query params `?memberId=&savingsType=&status=&fro
     "balanceAfter": 90000,
     "method": "Paystack|Manual Upload",
     "transactionId": "string",
-    "date": "2025-07-09",
+    "date": "2026-07-09",
     "status": "Success|Pending|Failed",
     "receiptUrl": "string?"
   }
 ]
 ```
 
-### `GET /savings/:recordId`
+### `GET /savings/:recordId` — **built**
 
-Single record, same shape.
+Single record, same shape as one list item above.
 
-### `POST /cooperatives/:id/savings` (admin manual/teller upload)
+### `POST /cooperatives/:id/savings` (admin manual/teller upload) — not yet built
 
 ```json
 // Request
@@ -311,7 +372,7 @@ Single record, same shape.
 // Response: the created record (balanceAfter computed server-side)
 ```
 
-### `POST /savings/requests` (member self-service)
+### `POST /savings/requests` (member self-service) — not yet built
 
 ```json
 // Request
@@ -324,11 +385,11 @@ Single record, same shape.
 }
 ```
 
-### `GET /cooperatives/:id/savings/requests`
+### `GET /cooperatives/:id/savings/requests` — not yet built
 
 List, same shape as above plus `resolvedAt`. `admin` sees their own co-op's; `super_admin` can pass no `:id` filter to see all.
 
-### `PATCH /savings/requests/:id`
+### `PATCH /savings/requests/:id` — not yet built
 
 ```json
 // Request
@@ -337,33 +398,62 @@ List, same shape as above plus `resolvedAt`. `admin` sees their own co-op's; `su
 
 On `Approved` + `type: Withdrawal`: backend must trigger a real payout via §10 (`/payouts/transfer`) to the member's saved bank details before marking it Approved. If the transfer fails, the request must stay `Pending` and the error surfaced back to the client — don't mark Approved if money didn't move.
 
-### `GET /savings/summary?coopId=`
-
-```json
-[{ "name": "Basic Savings", "min": 5000, "max": 10000, "total": 235000 }]
-```
-
-Used for the "Members Savings" breakdown table.
-
 ---
 
 ## 6. Loans
 
-### `GET /loans/types`
+**Super-admin oversight is built** (`LoanController`) — read-only, mirroring §5 Savings exactly.
+Everything below that isn't marked **built** is still the frontend's mock `useCoopStore` — see
+`t-coop-app/documentation/loans-page.md`.
+
+### `GET /cooperatives/:id/loans/types` — **built**
+
+The "Loans" breakdown table. Unlike savings types, loan types for real co-ops *are* seeded —
+`V17__seed_loan_types.sql` gave every co-op the same three products (Emergency/Education/
+Business Loan) as a deliberate one-time backfill, not an auto-seed-on-create hook (no new co-op
+gets these automatically going forward — see the migration's own note for why that split exists).
 
 ```json
 [
   {
+    "id": "uuid",
     "name": "Emergency Loan",
-    "interestRate": 5,
-    "maxAmount": 50000,
+    "eligibilityPercent": 300,
     "durationMonths": 3,
-    "eligibilityPercent": 300
+    "numberOfRepayments": 3,
+    "interestRate": 5,
+    "status": "Active|Inactive",
+    "earnings": 3500
   }
 ]
 ```
 
-### `GET /loans/eligibility?memberId=&loanType=`
+`earnings` ("Earnings on Loan") = `sum(totalRepayment - amount)` over every non-`Rejected` loan
+of that type — real interest collected, not illustrative like Savings' 2% figure, matching the
+frontend's `coopLoansBySummaryType` math exactly.
+
+### `GET /cooperatives/:id/loans` — **built**
+
+List, newest first. Every filter optional: `?memberId=&type=&status=&from=&to=` (`type` matches
+a loan type's name, not id).
+
+```json
+[
+  {
+    "id": "uuid", "memberId": "string", "memberName": "string", "loanType": "string",
+    "amount": 40000, "interestRate": 5, "durationMonths": 3, "numberOfRepayments": 3,
+    "monthlyRepayment": 14000, "totalRepayment": 42000, "guarantorName": "string",
+    "date": "iso-date", "status": "Awaiting Guarantor|Awaiting Admin|Active|Completed|Rejected",
+    "repaymentsMade": 3, "guarantorDocumentUrl": "string?", "rejectionReason": "string?"
+  }
+]
+```
+
+### `GET /loans/:recordId` — **built**
+
+Single record, same shape as one list item above.
+
+### `GET /loans/eligibility?memberId=&loanType=` — not yet built
 
 ```json
 { "eligibleAmount": 150000 }
@@ -371,22 +461,16 @@ Used for the "Members Savings" breakdown table.
 
 Computed as `min(maxAmount, totalSavings * eligibilityPercent / 100)`.
 
-### `POST /cooperatives/:id/loans` (member requests a loan)
+### `POST /cooperatives/:id/loans` (member requests a loan) — not yet built
 
 ```json
 // Request
 { "loanType": "string", "amount": 50000, "guarantorId": "string" }
 // Response — status starts "Awaiting Guarantor"
-{
-  "id": "string", "memberId": "string", "memberName": "string", "loanType": "string",
-  "amount": 50000, "interestRate": 5, "durationMonths": 3, "numberOfRepayments": 3,
-  "monthlyRepayment": 17500, "totalRepayment": 52500, "guarantorName": "string",
-  "date": "iso-date", "status": "Awaiting Guarantor|Awaiting Admin|Active|Completed|Rejected",
-  "repaymentsMade": 0
-}
 ```
+Response shape matches the list item above.
 
-### `PATCH /loans/:id/guarantor-response`
+### `PATCH /loans/:id/guarantor-response` — not yet built
 
 ```json
 // Request
@@ -395,7 +479,7 @@ Computed as `min(maxAmount, totalSavings * eligibilityPercent / 100)`.
 
 `Accepted` → status moves to `Awaiting Admin`. `Rejected` → status moves to `Rejected`.
 
-### `PATCH /loans/:id/decision` (admin)
+### `PATCH /loans/:id/decision` (admin) — not yet built
 
 ```json
 // Request
@@ -404,15 +488,7 @@ Computed as `min(maxAmount, totalSavings * eligibilityPercent / 100)`.
 
 On `Approved`: trigger a real payout via §10 to the member's bank details, same "don't mark Approved unless the transfer succeeded" rule as savings withdrawals. Moves status to `Active` (or `Rejected`).
 
-### `GET /cooperatives/:id/loans`
-
-List, same shape as the request response above.
-
-### `GET /loans/:id`
-
-Single record detail.
-
-### `GET /loans/:id/repayment-schedule`
+### `GET /loans/:id/repayment-schedule` — not yet built
 
 ```json
 [
@@ -427,7 +503,12 @@ Single record detail.
 ]
 ```
 
-**Note**: the current frontend only _displays_ a computed schedule and never records an actual repayment — there's no "make a repayment" action anywhere in the UI today. Flagging this as a real gap: decide with product whether repayments are auto-deducted (wallet), manually recorded by admin, or out of scope for this phase, then add a `POST /loans/:id/repayments` endpoint accordingly.
+**Note**: the current frontend only _displays_ a computed schedule (derived client-side from the
+now-real `amount`/`numberOfRepayments`/`totalRepayment`/`date`/`status`/`repaymentsMade` fields
+via `generateRepaymentSchedule` in `loans-data.ts`) and never records an actual repayment —
+there's no "make a repayment" action anywhere in the UI today. Flagging this as a real gap:
+decide with product whether repayments are auto-deducted (wallet), manually recorded by admin,
+or out of scope for this phase, then add a `POST /loans/:id/repayments` endpoint accordingly.
 
 ---
 

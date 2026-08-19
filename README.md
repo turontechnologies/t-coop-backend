@@ -249,7 +249,12 @@ docker-compose.yml                app + its own SQL Server, for local dev
       cooperative id, default password `admin123`, welcome email sent),
       `PATCH /api/v1/cooperatives/{id}` (edit — also syncs the admin's own
       name/email/phone), `PATCH /api/v1/cooperatives/{id}/status`
-      (enable/disable — also locks/unlocks the admin's login); see
+      (enable/disable — also locks/unlocks the admin's login),
+      `GET /api/v1/cooperatives/{id}/members` (real member list for the
+      co-op detail page's Members tab, plus real write endpoints —
+      `POST .../members` add, `PATCH .../members/{memberId}` edit,
+      `PATCH .../members/{memberId}/status` activate/disable — an `admin`
+      can only act on their own co-op, checked server-side); see
       `documentation/flows.md` for the full onboarding sequence
 - [x] Subscriptions — the platform-wide gate: no co-op (never-subscribed or
       lapsed) can perform any mutating request anywhere, enforced once by
@@ -263,6 +268,28 @@ docker-compose.yml                app + its own SQL Server, for local dev
       Integrations, never a static env var); branded receipt emailed on
       every payment; see `documentation/flows.md`'s subscription lifecycle
       section
+- [x] Savings oversight (super admin only, read-only) —
+      `GET /api/v1/cooperatives/{id}/savings/types` (the Members Savings
+      breakdown), `GET /api/v1/cooperatives/{id}/savings` (per-co-op record
+      list, filterable by memberId/type/status/from/to), and
+      `GET /api/v1/savings/{recordId}` (single-record detail). No auto-seed
+      — a co-op has zero savings types until someone deliberately
+      configures one (an earlier version auto-seeded a Basic/Advanced/
+      Premium trio copied from the frontend's old mock catalog; `V16`
+      reversed that as invented data no admin actually asked for). Admin/
+      member self-service (Upload Teller, real deposit/withdrawal
+      requests) is intentionally out of scope here — still the frontend's
+      mock store; see `documentation/flows.md`'s savings oversight section
+- [x] Loans oversight (super admin only, read-only) — mirrors Savings
+      exactly: `GET /api/v1/cooperatives/{id}/loans/types` (the Loans
+      breakdown, "Earnings on Loan" = real interest collected, not
+      illustrative), `GET /api/v1/cooperatives/{id}/loans` (filterable by
+      memberId/type/status/from/to), `GET /api/v1/loans/{recordId}`.
+      Unlike savings types, loan types ARE seeded — `V17` gave every real
+      co-op the same three products (Emergency/Education/Business Loan) as
+      a deliberate one-time backfill; no auto-seed on new co-op creation
+      though, same discipline as savings. See `documentation/flows.md`'s
+      loans oversight section
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a free ngrok static domain (stable URL, unlike a
       Cloudflare quick tunnel) while Azure access is pending — see

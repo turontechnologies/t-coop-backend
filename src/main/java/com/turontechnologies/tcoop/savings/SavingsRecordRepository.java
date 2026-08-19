@@ -26,6 +26,8 @@ public interface SavingsRecordRepository extends JpaRepository<SavingsRecord, UU
   List<SavingsRecord> findAllByCooperativeIdOrderByCreatedAtDesc(
       String cooperativeId, Pageable pageable);
 
+  List<SavingsRecord> findAllByCooperativeIdOrderByCreatedAtDesc(String cooperativeId);
+
   List<SavingsRecord> findAllByMemberIdOrderByCreatedAtDesc(String memberId, Pageable pageable);
 
   List<SavingsRecord> findAllByOrderByCreatedAtDesc(Pageable pageable);

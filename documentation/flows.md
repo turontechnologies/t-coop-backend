@@ -209,6 +209,110 @@ Key design points:
   self-service path both funnel through the same `applyPayment(...)` method** — one place decides
   what "recording a payment" means, whether the money was witnessed externally or verified live.
 
+## Savings oversight flow (super admin only)
+
+`SavingsController` backs the "Savings & Contributions" tab on a co-op's detail page — the
+`/co-operatives/[id]/savings/...` routes — and `CooperativeController.members` backs that same
+page's Members tab (`GET /cooperatives/:id/members`). **Read-only, super-admin only**, and
+deliberately scoped that way: the flows that actually *create* a savings record (an admin's
+"Upload Teller", a member's real Paystack "+ New Savings") or edit a member's profile/status
+haven't been cut over from the frontend's mock `useCoopStore` to this backend yet — see
+`t-coop-app/documentation/savings-page.md`. These controllers only read whatever's already in
+`members`/`savings_records`/`savings_types` — a member's id/name is joined into each savings row
+from the exact same `Member` rows the Members tab lists, so the two tabs can never disagree with
+each other or with the platform-wide `/savings` oversight page (both ultimately trace back to
+`GET /cooperatives`, `GET /cooperatives/:id/members`, and the savings endpoints below — no
+separate or cached copy of a co-op's identity anywhere in this flow).
+
+```mermaid
+sequenceDiagram
+    participant SA as Super admin (Browser)
+    participant F as Frontend
+    participant B as Spring Boot backend
+    participant DB as Azure SQL / MSSQL
+
+    SA->>F: Open /co-operatives/:id, Savings tab
+    F->>B: GET /api/v1/cooperatives/:id/savings/types
+    B->>DB: SELECT savings_types WHERE cooperative_id = :id
+    B->>DB: SELECT savings_records WHERE cooperative_id = :id AND status = 'Success'
+    B->>B: sum records per savings_type_id, compute 2% illustrative earnings
+    B-->>F: [{ name, min, max, status, earnings, total }]
+
+    SA->>F: Click a savings type row
+    F->>B: GET /api/v1/cooperatives/:id/savings?type=Basic+Savings
+    B->>DB: SELECT savings_records WHERE cooperative_id = :id, filtered by type/memberId/status/from/to
+    B->>B: join member full name + savings type name into each row
+    B-->>F: [SavingsRecordDto, ...]
+
+    SA->>F: Click a record
+    F->>B: GET /api/v1/savings/:recordId
+    B-->>F: SavingsRecordDto (full detail)
+```
+
+Key design points:
+- **No invented data — a co-op has zero savings types until someone deliberately configures
+  one.** An earlier version of this feature auto-seeded every co-op with a Basic/Advanced/Premium
+  trio copied from the frontend's old hardcoded `SAVINGS_TYPES` catalog — on creation
+  (`CooperativeController`) and via a one-time backfill (`V15__backfill_savings_types.sql`) for
+  co-ops that already existed. That was explicitly rejected: a super admin should never see a
+  savings-type name on this page that they didn't actually put there themselves.
+  `V16__remove_invented_savings_types.sql` deleted every one of those invented rows (every real
+  co-op except `COOP-0001`, whose Basic/Advanced/Premium rows predate this feature entirely —
+  hand-seeded in V3 as real demo data, not part of the backfill). `GET
+  /cooperatives/:id/savings/types` now legitimately returns `[]` for a co-op with none —
+  the frontend's empty-state message ("No savings types configured") is the honest, correct
+  outcome, not a bug to paper over with fake defaults.
+- **Per-co-op configurable, not a hardcoded global enum** — `savings_types` has always had a
+  `cooperative_id` column (V1). There's no management UI yet to actually create/edit a co-op's
+  own types, but the data model already supports it — a future task, not a redesign.
+- **"Earnings on Savings" is illustrative, not a real accrual engine** — a flat 2% of a type's
+  total, same honesty note as the dashboard's dividends figure and the frontend's own
+  pre-existing `SAVINGS_EARNINGS_RATE`. Nothing in this codebase pays real savings interest yet.
+- **A withdrawal is a negative-amount record, not a separate shape** — `SavingsRecord.amount`
+  can be negative; every sum here is a plain arithmetic sum, so a withdrawal nets out of a type's
+  total automatically, no special-casing. (No endpoint here *creates* one yet — this is purely
+  what gets read back once one exists.)
+- **Money in `Pending`/`Failed` status is excluded from every total.** Only `Success`-status
+  records count toward a savings type's `total`/`earnings` — matches the same discipline
+  `SavingsRecordRepository.sumByCooperative` (used by `CooperativeSummaryDto.totalSavings`)
+  already applied.
+
+## Members oversight — now read/write, not read-only
+
+`CooperativeController` also backs the co-op detail page's Members tab: `GET
+/cooperatives/:id/members` (list — was already read-only), plus three more that make it a real
+management surface, not just a mirror: `POST /cooperatives/:id/members` (add a member — same
+onboarding convention as a co-op's own admin: caller picks the membership ID, account starts
+with the platform default password `admin123`, a welcome email goes out with those credentials),
+`PATCH /cooperatives/:id/members/:memberId` (edit profile), `PATCH
+/cooperatives/:id/members/:memberId/status` (Active/Inactive). All four share one auth rule
+(`requireCoopAccess`): `super_admin` can act on any co-op; `admin` only their own, checked
+against their own `cooperativeId` server-side — the path's `{id}` is never trusted on its own for
+an `admin` caller. The frontend's `CoopMembersTable`/`EditMemberModal` used to show a "Coming
+soon" toast for Edit/Disable against real data — that placeholder is gone now that these
+endpoints exist.
+
+## Loans oversight flow (super admin only) — mirrors Savings exactly
+
+`LoanController` is `SavingsController`'s counterpart: `GET /cooperatives/:id/loans/types` (the
+"Loans" breakdown table — eligibility/duration/interest from the co-op's own `loan_types` row,
+"Earnings on Loan" aggregated live as `sum(totalRepayment - amount)` over every non-`Rejected`
+loan of that type — real interest collected, not an illustrative flat rate like Savings' 2%),
+`GET /cooperatives/:id/loans` (per-co-op record list, filterable by `memberId`/`type`/`status`/
+`from`/`to`), `GET /loans/:recordId` (single-record detail). Same read-only-by-design scoping as
+Savings: the flows that actually *create* a loan record (a member's request, guarantor
+acceptance, admin approval/disbursement) haven't been cut over from the frontend's mock store —
+see `t-coop-app/documentation/loans-page.md`.
+
+**Loan types ARE seeded, unlike savings types — a deliberate, different choice, not an
+inconsistency.** `V17__seed_loan_types.sql` gave every real co-op the same three products
+(Emergency/Education/Business Loan, matching `COOP-0001`'s own pre-existing V3 values) as an
+explicit one-time backfill, requested directly rather than invented on the fly. Critically,
+`CooperativeController` does **not** auto-seed loan types on new co-op creation — the same
+lesson from the savings auto-seed reversal (V15/V16) still applies going forward: a co-op
+onboarded after V17 ran starts with zero loan types until someone seeds/configures them
+explicitly, same honest-empty-state discipline as savings types.
+
 ## Dashboard summary flow
 
 ```mermaid

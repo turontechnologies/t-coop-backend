@@ -119,6 +119,49 @@ public class EmailService {
         body);
   }
 
+  public void sendMemberWelcomeEmail(
+      String toEmail,
+      String recipientName,
+      String cooperativeName,
+      String membershipId,
+      String defaultPassword) {
+    String firstName = firstNameOf(recipientName);
+
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">Welcome aboard</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + "Your member account is ready</h1>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstName) + ", you've been added to " + escapeHtml(cooperativeName)
+            + " on T-Cooperative. Sign in with the credentials below, then change your "
+            + "password from Settings.</p>"
+            + "<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;"
+            + "border-collapse:collapse;\">"
+            + "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
+            + "border-radius:8px 8px 0 0;border-bottom:none;\">"
+            + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
+            + "letter-spacing:0.06em;\">Membership ID (your login ID)</p>"
+            + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;"
+            + "font-family:monospace;\">" + escapeHtml(membershipId) + "</p>"
+            + "</td></tr>"
+            + "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"
+            + "border-radius:0 0 8px 8px;\">"
+            + "<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;"
+            + "letter-spacing:0.06em;\">Default password</p>"
+            + "<p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;"
+            + "font-family:monospace;\">" + escapeHtml(defaultPassword) + "</p>"
+            + "</td></tr>"
+            + "</table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "Keep this email private — anyone with these credentials can sign in as you.</p>";
+
+    send(
+        toEmail,
+        "Welcome to T-Cooperative — your member account for " + cooperativeName,
+        body);
+  }
+
   /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
   public void sendSubscriptionReceiptEmail(
       String toEmail,

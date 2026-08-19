@@ -26,6 +26,8 @@ public interface LoanRecordRepository extends JpaRepository<LoanRecord, UUID> {
   List<LoanRecord> findAllByCooperativeIdOrderByCreatedAtDesc(
       String cooperativeId, Pageable pageable);
 
+  List<LoanRecord> findAllByCooperativeIdOrderByCreatedAtDesc(String cooperativeId);
+
   List<LoanRecord> findAllByMemberIdOrderByCreatedAtDesc(String memberId, Pageable pageable);
 
   List<LoanRecord> findAllByOrderByCreatedAtDesc(Pageable pageable);

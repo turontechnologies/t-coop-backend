@@ -2,9 +2,11 @@ package com.turontechnologies.tcoop.cooperative;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
+import com.turontechnologies.tcoop.loan.LoanTypeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.savings.SavingsRecordRepository;
+import com.turontechnologies.tcoop.savings.SavingsTypeRepository;
 import com.turontechnologies.tcoop.auth.EmailDeliveryException;
 import com.turontechnologies.tcoop.auth.EmailService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,7 +43,9 @@ public class CooperativeController {
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
   private final SavingsRecordRepository savingsRecordRepository;
+  private final SavingsTypeRepository savingsTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
+  private final LoanTypeRepository loanTypeRepository;
   private final PasswordEncoder passwordEncoder;
   private final EmailService emailService;
   private final AuditLogService auditLogService;
@@ -50,14 +54,18 @@ public class CooperativeController {
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       SavingsRecordRepository savingsRecordRepository,
+      SavingsTypeRepository savingsTypeRepository,
       LoanRecordRepository loanRecordRepository,
+      LoanTypeRepository loanTypeRepository,
       PasswordEncoder passwordEncoder,
       EmailService emailService,
       AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.savingsRecordRepository = savingsRecordRepository;
+    this.savingsTypeRepository = savingsTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
+    this.loanTypeRepository = loanTypeRepository;
     this.passwordEncoder = passwordEncoder;
     this.emailService = emailService;
     this.auditLogService = auditLogService;
@@ -83,6 +91,187 @@ public class CooperativeController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
     return ResponseEntity.ok(toDto(coop));
+  }
+
+  /** Listing is read-only for super admin's co-op oversight; an admin can also list (and add
+   * to, below) their own co-op's roster — this is the real backend behind Members Directory. */
+  @GetMapping("/api/v1/cooperatives/{id}/members")
+  public ResponseEntity<?> members(Authentication authentication, @PathVariable String id) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+    if (!cooperativeRepository.existsById(id)) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+
+    List<CoopMemberDto> dtos =
+        memberRepository.findAllByCooperativeId(id).stream()
+            .filter(member -> MEMBER_ROLES.contains(member.getRole()))
+            .map(CoopMemberDto::from)
+            .toList();
+    return ResponseEntity.ok(dtos);
+  }
+
+  /** Adds a real member with a real login — same convention as co-op admin onboarding: the
+   * caller picks the membership ID, the account starts with the platform default password,
+   * a welcome email goes out. An admin can only add to their own co-op; super admin, any co-op. */
+  @PostMapping("/api/v1/cooperatives/{id}/members")
+  public ResponseEntity<?> addMember(
+      Authentication authentication,
+      @PathVariable String id,
+      @Valid @RequestBody MemberCreateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+    if (!cooperativeRepository.existsById(id)) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+    if (memberRepository.existsById(request.membershipId())) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "That membership ID is already in use. Please choose another."));
+    }
+    if (memberRepository.findByEmail(request.email()).isPresent()) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "That email address is already in use by another account"));
+    }
+
+    String role = "Admin".equals(request.role()) ? "admin" : "member";
+    Member member =
+        new Member(
+            request.membershipId(),
+            id,
+            role,
+            passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD),
+            request.firstName(),
+            request.lastName(),
+            request.email());
+    member.updateProfile(
+        request.firstName(),
+        request.lastName(),
+        request.otherName(),
+        request.gender(),
+        request.phone(),
+        request.email(),
+        null,
+        request.homeAddress(),
+        request.country(),
+        request.state(),
+        request.city(),
+        request.facebook(),
+        request.twitter(),
+        request.guarantor(),
+        request.bankCode(),
+        request.accountNumber(),
+        request.accountName());
+    memberRepository.save(member);
+
+    try {
+      emailService.sendMemberWelcomeEmail(
+          request.email(),
+          member.getFullName(),
+          cooperativeRepository.findById(id).map(Cooperative::getName).orElse(id),
+          member.getId(),
+          DEFAULT_ADMIN_PASSWORD);
+    } catch (EmailDeliveryException e) {
+      log.warn(
+          "Member {} added to {} but welcome email to {} failed: {}",
+          member.getId(),
+          id,
+          request.email(),
+          e.getMessage());
+    }
+
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Members",
+        "Create",
+        member.getFullName(),
+        "Success",
+        httpRequest);
+
+    return ResponseEntity.ok(CoopMemberDto.from(member));
+  }
+
+  /** Edits a member's profile — same access rule as addMember: admin only their own co-op,
+   * super admin any. Fields the frontend's edit form doesn't show (otherName, gender, phone,
+   * nin, facebook, twitter) are preserved as-is, never blanked out. */
+  @PatchMapping("/api/v1/cooperatives/{id}/members/{memberId}")
+  public ResponseEntity<?> updateMember(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String memberId,
+      @Valid @RequestBody MemberUpdateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Member member = memberRepository.findById(memberId).orElse(null);
+    if (member == null || !id.equals(member.getCooperativeId())) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that member"));
+    }
+
+    member.updateProfile(
+        request.firstName(),
+        request.lastName(),
+        member.getOtherName(),
+        member.getGender(),
+        member.getPhone(),
+        request.email(),
+        member.getNin(),
+        member.getHomeAddress(),
+        request.country(),
+        request.state(),
+        request.city(),
+        member.getFacebook(),
+        member.getTwitter(),
+        request.guarantor(),
+        request.bankCode(),
+        request.accountNumber(),
+        request.accountName());
+    member.setRole("Admin".equals(request.role()) ? "admin" : "member");
+    memberRepository.save(member);
+
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Members",
+        "Update",
+        member.getFullName(),
+        "Success",
+        httpRequest);
+
+    return ResponseEntity.ok(CoopMemberDto.from(member));
+  }
+
+  /** Activates/disables a member's login — same access rule as addMember/updateMember. */
+  @PatchMapping("/api/v1/cooperatives/{id}/members/{memberId}/status")
+  public ResponseEntity<?> updateMemberStatus(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String memberId,
+      @Valid @RequestBody MemberStatusUpdateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Member member = memberRepository.findById(memberId).orElse(null);
+    if (member == null || !id.equals(member.getCooperativeId())) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that member"));
+    }
+
+    member.setStatus(request.status());
+    memberRepository.save(member);
+
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Members",
+        "Update",
+        member.getFullName(),
+        "Inactive".equals(request.status()) ? "Warning" : "Success",
+        httpRequest);
+
+    return ResponseEntity.ok(CoopMemberDto.from(member));
   }
 
   @PostMapping("/api/v1/cooperatives")
@@ -290,6 +479,8 @@ public class CooperativeController {
 
   private CooperativeSummaryDto toDto(Cooperative coop) {
     long memberCount = memberRepository.countByCooperativeIdAndRoleIn(coop.getId(), MEMBER_ROLES);
+    long savingsTypeCount = savingsTypeRepository.countByCooperativeId(coop.getId());
+    long loanTypeCount = loanTypeRepository.countByCooperativeId(coop.getId());
     var totalSavings = savingsRecordRepository.sumByCooperative(coop.getId());
     var totalLoans = loanRecordRepository.sumByCooperative(coop.getId());
     return new CooperativeSummaryDto(
@@ -305,6 +496,8 @@ public class CooperativeController {
         coop.getStatus(),
         coop.getCurrency(),
         memberCount,
+        savingsTypeCount,
+        loanTypeCount,
         totalSavings,
         totalLoans);
   }
@@ -324,5 +517,27 @@ public class CooperativeController {
           .body(Map.of("error", "Only a super admin can manage co-operatives"));
     }
     return null;
+  }
+
+  private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  /** Super admin can access any co-op's members; an admin only their own — never trusts the
+   * path's {id} for an admin caller, always checks it against their own cooperativeId. */
+  private CoopAccess requireCoopAccess(Authentication authentication, String cooperativeId) {
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return new CoopAccess(null, ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
+    }
+    if ("super_admin".equals(caller.getRole())) {
+      return new CoopAccess(caller, null);
+    }
+    if ("admin".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+      return new CoopAccess(caller, null);
+    }
+    return new CoopAccess(
+        null,
+        ResponseEntity.status(403)
+            .body(Map.of("error", "You can only manage your own co-operative's members")));
   }
 }

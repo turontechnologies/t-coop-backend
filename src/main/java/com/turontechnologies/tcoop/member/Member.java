@@ -230,4 +230,10 @@ public class Member {
   public void setStatus(String status) {
     this.status = status;
   }
+
+  /** Only ever called from super-admin/admin co-op-member management — a member's own
+   * self-service profile edit never touches this. */
+  public void setRole(String role) {
+    this.role = role;
+  }
 }

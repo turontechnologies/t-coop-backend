@@ -10,4 +10,6 @@ public interface MemberRepository extends JpaRepository<Member, String> {
   long countByRoleIn(java.util.List<String> roles);
 
   long countByCooperativeIdAndRoleIn(String cooperativeId, java.util.List<String> roles);
+
+  java.util.List<Member> findAllByCooperativeId(String cooperativeId);
 }

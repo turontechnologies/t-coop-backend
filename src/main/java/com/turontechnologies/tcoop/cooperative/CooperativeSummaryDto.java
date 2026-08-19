@@ -16,5 +16,7 @@ public record CooperativeSummaryDto(
     String status,
     String currency,
     long memberCount,
+    long savingsTypeCount,
+    long loanTypeCount,
     BigDecimal totalSavings,
     BigDecimal totalLoans) {}
