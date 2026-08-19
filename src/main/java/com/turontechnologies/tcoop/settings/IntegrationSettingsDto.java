@@ -9,7 +9,11 @@ public record IntegrationSettingsDto(
     boolean flutterwaveEnabled,
     String flutterwavePublicKey,
     String flutterwaveSecretKey,
-    String flutterwaveEncryptionKey) {
+    String flutterwaveEncryptionKey,
+    boolean opayEnabled,
+    String opayPublicKey,
+    String opaySecretKey,
+    String opayMerchantId) {
 
   public static IntegrationSettingsDto from(PlatformSettings settings) {
     return new IntegrationSettingsDto(
@@ -20,6 +24,10 @@ public record IntegrationSettingsDto(
         settings.isFlutterwaveEnabled(),
         settings.getFlutterwavePublicKey(),
         settings.getFlutterwaveSecretKey(),
-        settings.getFlutterwaveEncryptionKey());
+        settings.getFlutterwaveEncryptionKey(),
+        settings.isOpayEnabled(),
+        settings.getOpayPublicKey(),
+        settings.getOpaySecretKey(),
+        settings.getOpayMerchantId());
   }
 }

@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,6 +52,9 @@ public class SubscriptionController {
   private final PaymentGatewayService paymentGatewayService;
   private final EmailService emailService;
   private final AuditLogService auditLogService;
+
+  @Value("${app.frontend-url}")
+  private String frontendUrl;
 
   public SubscriptionController(
       CooperativeRepository cooperativeRepository,
@@ -170,6 +174,9 @@ public class SubscriptionController {
       gateways.add(
           new MySubscriptionDto.GatewayOption("Flutterwave", settings.getFlutterwavePublicKey()));
     }
+    if (settings.isOpayEnabled() && notBlank(settings.getOpayPublicKey())) {
+      gateways.add(new MySubscriptionDto.GatewayOption("Opay", settings.getOpayPublicKey()));
+    }
 
     List<SubscriptionPlanDto> availablePlans =
         planRepository
@@ -221,22 +228,48 @@ public class SubscriptionController {
           .body(Map.of("error", "That plan isn't available for your co-operative right now."));
     }
 
-    String publicKey;
+    String publicKey = null;
+    String checkoutUrl = null;
+    String reference = generateTransactionReference(coop.getId());
+
     if ("Paystack".equals(request.gateway())) {
       if (!settings.isPaystackEnabled() || !notBlank(settings.getPaystackPublicKey())) {
         return ResponseEntity.status(409)
             .body(Map.of("error", "Paystack isn't set up for this platform yet."));
       }
       publicKey = settings.getPaystackPublicKey();
-    } else {
+    } else if ("Flutterwave".equals(request.gateway())) {
       if (!settings.isFlutterwaveEnabled() || !notBlank(settings.getFlutterwavePublicKey())) {
         return ResponseEntity.status(409)
             .body(Map.of("error", "Flutterwave isn't set up for this platform yet."));
       }
       publicKey = settings.getFlutterwavePublicKey();
+    } else {
+      if (!settings.isOpayEnabled()
+          || !notBlank(settings.getOpayPublicKey())
+          || !notBlank(settings.getOpaySecretKey())
+          || !notBlank(settings.getOpayMerchantId())) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "OPay isn't set up for this platform yet."));
+      }
+      PaymentGatewayService.OpayCheckoutResult checkout =
+          paymentGatewayService.createOpayCheckout(
+              reference,
+              plan.getAmount(),
+              frontendUrl + "/support?opay_reference=" + reference,
+              "Subscription - " + plan.getLabel(),
+              coop.getName() + " subscription (" + plan.getLabel() + ")",
+              result.admin().getEmail(),
+              settings.getOpayPublicKey(),
+              settings.getOpaySecretKey(),
+              settings.getOpayMerchantId());
+      if (!checkout.success()) {
+        return ResponseEntity.status(502)
+            .body(Map.of("error", checkout.message() != null ? checkout.message() : "Couldn't start that OPay payment."));
+      }
+      checkoutUrl = checkout.cashierUrl();
     }
 
-    String reference = generateTransactionReference(coop.getId());
     intentRepository.save(
         new SubscriptionPaymentIntent(
             reference,
@@ -247,7 +280,8 @@ public class SubscriptionController {
             request.gateway()));
 
     return ResponseEntity.ok(
-        new InitializePaymentResponseDto(reference, plan.getAmount(), request.gateway(), publicKey));
+        new InitializePaymentResponseDto(
+            reference, plan.getAmount(), request.gateway(), publicKey, checkoutUrl));
   }
 
   @PostMapping("/api/v1/subscriptions/me/confirm")
@@ -270,10 +304,14 @@ public class SubscriptionController {
 
     PlatformSettings settings = platformSettings();
     PaymentGatewayService.VerificationResult verification =
-        "Paystack".equals(intent.getGateway())
-            ? paymentGatewayService.verifyPaystack(intent.getReference(), settings.getPaystackSecretKey())
-            : paymentGatewayService.verifyFlutterwave(
-                intent.getReference(), settings.getFlutterwaveSecretKey());
+        switch (intent.getGateway()) {
+          case "Paystack" -> paymentGatewayService.verifyPaystack(
+              intent.getReference(), settings.getPaystackSecretKey());
+          case "Opay" -> paymentGatewayService.verifyOpay(
+              intent.getReference(), settings.getOpaySecretKey(), settings.getOpayMerchantId());
+          default -> paymentGatewayService.verifyFlutterwave(
+              intent.getReference(), settings.getFlutterwaveSecretKey());
+        };
 
     if (!verification.success()) {
       intent.setStatus("Failed");

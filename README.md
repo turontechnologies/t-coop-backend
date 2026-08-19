@@ -239,9 +239,9 @@ docker-compose.yml                app + its own SQL Server, for local dev
       (`platform_fee_settings`, `V6` added the new columns), plus full CRUD
       on `/api/v1/settings/subscription-plans` (`GET`/`POST`/`PATCH`/`DELETE`
       — the price list subscriptions checkout reads from, `V12`). The
-      Paystack/Flutterwave keys entered here are no longer just stored for
-      reference — subscription self-service checkout (see below) reads them
-      live for real Inline checkout and real server-side transaction
+      Paystack/Flutterwave/OPay keys entered here are no longer just stored
+      for reference — subscription self-service checkout (see below) reads
+      them live for real checkout and real server-side transaction
       verification
 - [x] Co-operatives (super admin only) — `GET /api/v1/cooperatives` (list),
       `GET /api/v1/cooperatives/{id}`, `POST /api/v1/cooperatives` (onboard —
@@ -257,11 +257,12 @@ docker-compose.yml                app + its own SQL Server, for local dev
       Plans catalog (super admin, see above) — flexible durations, not a
       fixed Weekly/Monthly/Quarterly/Yearly formula. Super admin manual
       recording (`POST /api/v1/cooperatives/{id}/subscriptions`) and
-      self-service Paystack/Flutterwave checkout for the co-op's own admin
-      (`GET/POST /api/v1/subscriptions/me*`, real server-side verification
-      against the gateway using keys from Settings -> Integrations, never a
-      static env var); branded receipt emailed on every payment; see
-      `documentation/flows.md`'s subscription lifecycle section
+      self-service Paystack/Flutterwave/OPay checkout for the co-op's own
+      admin (`GET/POST /api/v1/subscriptions/me*`, real server-side
+      verification against the gateway using keys from Settings ->
+      Integrations, never a static env var); branded receipt emailed on
+      every payment; see `documentation/flows.md`'s subscription lifecycle
+      section
 - [x] Dockerized (app + DB via `docker-compose.yml`), temporarily exposed
       publicly via a free ngrok static domain (stable URL, unlike a
       Cloudflare quick tunnel) while Azure access is pending — see
@@ -281,6 +282,16 @@ docker-compose.yml                app + its own SQL Server, for local dev
       account (no test keys were available) — verify with a real
       transaction before relying on it in production; Paystack has been
       tested end to end with a real test-mode payment
+- [x] OPay checkout — confirmed working end to end against OPay's real
+      **sandbox** API (`testapi.opaycheckout.com`): `initialize` returns a
+      real hosted `checkoutUrl`, `confirm` correctly reaches `cashier/status`.
+      Not live yet — the Nigeria-registered merchant account configured in
+      Settings -> Integrations hasn't finished OPay's own live verification
+      (dashboard shows "Test Mode, unverified"; live calls 403/fail with
+      undocumented errors). Switching to live needs the correct per-country
+      live host (see `documentation/flows.md`'s subscription lifecycle
+      section — empirically different for NG vs EG merchants, undocumented
+      by OPay) once that account is activated.
 
 **Uploads are the one thing not yet cut over.** The frontend still uses its
 own Cloudinary keys and its own `/api/upload` route for avatars. Once the

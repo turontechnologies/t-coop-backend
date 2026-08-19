@@ -113,7 +113,11 @@ public class PlatformSettingsController {
         request.flutterwaveEnabled(),
         request.flutterwavePublicKey(),
         request.flutterwaveSecretKey(),
-        request.flutterwaveEncryptionKey());
+        request.flutterwaveEncryptionKey(),
+        request.opayEnabled(),
+        request.opayPublicKey(),
+        request.opaySecretKey(),
+        request.opayMerchantId());
     settingsRepository.save(settings);
 
     logSettingsUpdate(authentication, "Integrations", httpRequest);

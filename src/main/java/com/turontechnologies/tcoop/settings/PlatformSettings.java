@@ -65,6 +65,18 @@ public class PlatformSettings {
   @Column(name = "flutterwave_encryption_key")
   private String flutterwaveEncryptionKey;
 
+  @Column(name = "opay_enabled")
+  private boolean opayEnabled;
+
+  @Column(name = "opay_public_key")
+  private String opayPublicKey;
+
+  @Column(name = "opay_secret_key")
+  private String opaySecretKey;
+
+  @Column(name = "opay_merchant_id")
+  private String opayMerchantId;
+
   protected PlatformSettings() {
     // JPA
   }
@@ -137,6 +149,22 @@ public class PlatformSettings {
     return flutterwaveEncryptionKey;
   }
 
+  public boolean isOpayEnabled() {
+    return opayEnabled;
+  }
+
+  public String getOpayPublicKey() {
+    return opayPublicKey;
+  }
+
+  public String getOpaySecretKey() {
+    return opaySecretKey;
+  }
+
+  public String getOpayMerchantId() {
+    return opayMerchantId;
+  }
+
   public void updateFees(
       String savingsChargeType,
       BigDecimal savingsChargeAmount,
@@ -165,7 +193,11 @@ public class PlatformSettings {
       boolean flutterwaveEnabled,
       String flutterwavePublicKey,
       String flutterwaveSecretKey,
-      String flutterwaveEncryptionKey) {
+      String flutterwaveEncryptionKey,
+      boolean opayEnabled,
+      String opayPublicKey,
+      String opaySecretKey,
+      String opayMerchantId) {
     this.paystackEnabled = paystackEnabled;
     this.paystackPublicKey = paystackPublicKey;
     this.paystackSecretKey = paystackSecretKey;
@@ -174,5 +206,9 @@ public class PlatformSettings {
     this.flutterwavePublicKey = flutterwavePublicKey;
     this.flutterwaveSecretKey = flutterwaveSecretKey;
     this.flutterwaveEncryptionKey = flutterwaveEncryptionKey;
+    this.opayEnabled = opayEnabled;
+    this.opayPublicKey = opayPublicKey;
+    this.opaySecretKey = opaySecretKey;
+    this.opayMerchantId = opayMerchantId;
   }
 }

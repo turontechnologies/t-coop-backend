@@ -17,4 +17,8 @@ public record IntegrationSettingsUpdateRequest(
     @NotNull(message = "flutterwaveEnabled is required") Boolean flutterwaveEnabled,
     String flutterwavePublicKey,
     String flutterwaveSecretKey,
-    String flutterwaveEncryptionKey) {}
+    String flutterwaveEncryptionKey,
+    @NotNull(message = "opayEnabled is required") Boolean opayEnabled,
+    String opayPublicKey,
+    String opaySecretKey,
+    String opayMerchantId) {}

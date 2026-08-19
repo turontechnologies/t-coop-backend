@@ -116,14 +116,14 @@ A co-op can act on the platform only while its subscription is paid up (`Subscri
 enforces this on every mutating request platform-wide) — including a co-op that has *never*
 paid, not just one that lapsed. There are two ways to pay: the super admin records a payment
 they witnessed happen externally, or the co-op's own admin pays for real via Paystack/
-Flutterwave from `/support` (the one page a dormant admin can still reach).
+Flutterwave/OPay from `/support` (the one page a dormant admin can still reach).
 
 ```mermaid
 sequenceDiagram
     participant Admin as Co-op admin (Browser)
     participant F as Frontend
     participant B as Spring Boot backend
-    participant GW as Paystack/Flutterwave
+    participant GW as Paystack/Flutterwave (client-side widget)
     participant DB as Azure SQL / MSSQL
 
     Note over Admin,DB: Every write Admin attempts anywhere else in the app gets 402\n"subscription expired" from SubscriptionGateFilter until this succeeds.
@@ -154,6 +154,36 @@ sequenceDiagram
     F-->>Admin: Branded receipt (on-screen + downloadable PDF); dashboard's "expired" banner\nand /support redirect both clear on the next session refresh
 ```
 
+**OPay is a third gateway option with a different shape from the diagram above** — it's
+server-initiated/redirect-based, not a client-side inline widget:
+- `POST /subscriptions/me/initialize { gateway: "Opay" }` has the *backend itself* call OPay's
+  real `cashier/create` API and returns a hosted `checkoutUrl` instead of a `publicKey`.
+- The frontend just navigates the browser to that `checkoutUrl` (`redirectToOpayCheckout` in
+  `src/lib/opay.ts`) — there's no widget step, the payer leaves the app entirely.
+- OPay redirects back to `{FRONTEND_URL}/support?opay_reference=...` once they're done;
+  `AdminSupportView` picks the reference back up from the URL on mount and calls
+  `POST /subscriptions/me/confirm` the same way the widget's success callback does for the
+  other two gateways. `PaymentGatewayService.verifyOpay` does the server-side verification call.
+- **OPay's two endpoints use two different auth schemes** — undocumented as a pair anywhere in
+  OPay's own docs, only found by trial against their real sandbox API:
+  - `cashier/create` (`createOpayCheckout`) takes the **raw public key** as the bearer token.
+    Signing it (as `documentation.opaycheckout.com/api-signature` describes) produces a genuine
+    `"Authentication failed"`.
+  - `cashier/status` (`verifyOpay`) requires the **HMAC-SHA512-over-alphabetically-sorted-JSON**
+    scheme that same page describes, signed with the secret key.
+- **Currently wired to OPay's sandbox** (`testapi.opaycheckout.com`), not live — confirmed
+  working end-to-end (`initialize` returns a real `checkoutUrl`; `confirm` correctly reaches
+  `cashier/status` and reports "not successful" for an unpaid reference). Neither real merchant
+  account available to this platform has finished OPay's live verification yet (both show
+  "Test Mode, unverified" on their dashboards; live calls fail with an undocumented
+  `{"code":"00003","message":"merchant is null"}`, not in OPay's own published error-code list).
+  Switching to live later means updating `PaymentGatewayService.OPAY_BASE_URL` to the correct
+  **per-country** live host — empirically, `liveapi.opaycheckout.com` for a Nigeria-registered
+  merchant, `api.opaycheckout.com` for an Egypt-registered one (the wrong one for a given
+  merchant 403s with a "request domain error" naming that merchant's actual country) — and
+  re-confirming both endpoints' auth schemes still hold on live, since that was never checked
+  there.
+
 Key design points:
 - **Pricing is a super-admin-managed catalog, not a formula.** `SubscriptionPlan` (Payment
   Settings → Subscription Plans) is freely addable/editable/deletable, with a flexible
@@ -167,7 +197,9 @@ Key design points:
 - **Keys come from `PlatformSettings`, never a static env var.** `PaymentGatewayService` reads
   whatever the super admin entered in Settings → Integrations at the moment of verification —
   same discipline the frontend's `/support` page follows for the public key it hands to
-  Paystack/Flutterwave's own checkout widget.
+  Paystack/Flutterwave's own checkout widget (OPay's secret key stays server-side only, used to
+  sign the `cashier/create`/`cashier/status` calls directly — its "public key" is stored for
+  parity with the other two gateways but isn't actually used by OPay's own API).
 - **`SubscriptionGateFilter` exempts every `/api/v1/subscriptions/me/**` route** specifically so
   a fully-locked-out admin can still reach the one path that unlocks them.
 - **Every receipt is regenerable, not stored as a file** — `SubscriptionPayment.resultingExpiresAt`
