@@ -18,7 +18,7 @@
   <description>Backend service for T-Coop — a savings and loan platform for corporate bodies</description>
 
   <properties>
-    <java.version>21</java.version>
+    <java.version>25</java.version>
   </properties>
 
   <dependencies>

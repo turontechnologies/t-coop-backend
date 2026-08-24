@@ -90,12 +90,16 @@ public class SubscriptionGateFilter extends OncePerRequestFilter {
       return true;
     }
     String path = request.getRequestURI();
-    // /subscriptions/me/** is the one mutating path a dormant admin needs — it's how they pay
-    // their way back in. Every write against it is still verified server-side against the real
-    // gateway API (see SubscriptionController/PaymentGatewayService); it's never a free pass to
-    // mutate anything else.
+    // /subscriptions/me/** is the one mutating path a dormant admin needs to pay their way back
+    // in; /notifications/** has to stay interactive too — a co-op whose subscription has lapsed
+    // is exactly the co-op most likely to have a "your subscription expired" notification sitting
+    // unread, and marking it read (or read-all) must not itself be blocked by the very thing it's
+    // telling them about. Neither exemption is a free pass to mutate anything else — every write
+    // against them is scoped to the caller's own data (see SubscriptionController/
+    // NotificationController).
     return path.startsWith("/api/v1/auth/")
         || path.equals("/api/health")
-        || path.startsWith("/api/v1/subscriptions/me");
+        || path.startsWith("/api/v1/subscriptions/me")
+        || path.startsWith("/api/v1/notifications");
   }
 }

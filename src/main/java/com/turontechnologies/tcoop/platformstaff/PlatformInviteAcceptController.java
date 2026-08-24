@@ -6,6 +6,7 @@ import com.turontechnologies.tcoop.auth.LoginResponse;
 import com.turontechnologies.tcoop.auth.MemberDto;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import com.turontechnologies.tcoop.notification.NotificationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.time.LocalDateTime;
@@ -33,18 +34,21 @@ public class PlatformInviteAcceptController {
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final AuditLogService auditLogService;
+  private final NotificationService notificationService;
 
   public PlatformInviteAcceptController(
       MemberRepository memberRepository,
       PlatformRoleRepository platformRoleRepository,
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      NotificationService notificationService) {
     this.memberRepository = memberRepository;
     this.platformRoleRepository = platformRoleRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
     this.auditLogService = auditLogService;
+    this.notificationService = notificationService;
   }
 
   @GetMapping("/api/v1/platform-invites/{token}")
@@ -78,6 +82,12 @@ public class PlatformInviteAcceptController {
 
     auditLogService.log(
         member.getId(), member.getRole(), "Authentication", "Login", member.getEmail(), "Success", httpRequest);
+
+    notificationService.notifyAllSuperAdmins(
+        "PLATFORM_STAFF_JOINED",
+        "New platform staff member",
+        member.getFullName() + " (" + member.getEmail() + ") accepted their invite and can now log in.",
+        "/settings");
 
     List<String> permissionModules =
         platformRoleRepository.findById(member.getPlatformRoleId())

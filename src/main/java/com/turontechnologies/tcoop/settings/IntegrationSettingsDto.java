@@ -13,7 +13,10 @@ public record IntegrationSettingsDto(
     boolean opayEnabled,
     String opayPublicKey,
     String opaySecretKey,
-    String opayMerchantId) {
+    String opayMerchantId,
+    boolean smsEnabled,
+    String smsApiKey,
+    String smsSenderId) {
 
   public static IntegrationSettingsDto from(PlatformSettings settings) {
     return new IntegrationSettingsDto(
@@ -28,6 +31,9 @@ public record IntegrationSettingsDto(
         settings.isOpayEnabled(),
         settings.getOpayPublicKey(),
         settings.getOpaySecretKey(),
-        settings.getOpayMerchantId());
+        settings.getOpayMerchantId(),
+        settings.isSmsEnabled(),
+        settings.getSmsApiKey(),
+        settings.getSmsSenderId());
   }
 }

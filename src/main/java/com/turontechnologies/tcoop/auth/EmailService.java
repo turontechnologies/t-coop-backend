@@ -224,6 +224,28 @@ public class EmailService {
     send(toEmail, "Payment received — " + cooperativeName + "'s subscription is active", body);
   }
 
+  /** Notice Board — sent when a notice's medium includes "Email". Non-fatal by design at the
+   * call site (NoticeController): a delivery failure shouldn't block the notice itself or its
+   * in-app notification, so the caller logs and moves on rather than propagating this. */
+  public void sendNoticeEmail(
+      String toEmail, String recipientName, String noticeType, String title, String message) {
+    String firstName = firstNameOf(recipientName);
+
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">" + escapeHtml(noticeType) + "</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + escapeHtml(title) + "</h1>"
+            + "<p style=\"margin:0 0 8px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstName) + ",</p>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;"
+            + "white-space:pre-line;\">" + escapeHtml(message) + "</p>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "Log in to T-Cooperative's Notice Board to reply or see the full announcement.</p>";
+
+    send(toEmail, title, body);
+  }
+
   private String receiptRow(String label, String value, boolean firstRow) {
     String radius = firstRow ? "border-radius:8px 8px 0 0;border-bottom:none;" : "";
     return "<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;"

@@ -117,7 +117,10 @@ public class PlatformSettingsController {
         request.opayEnabled(),
         request.opayPublicKey(),
         request.opaySecretKey(),
-        request.opayMerchantId());
+        request.opayMerchantId(),
+        request.smsEnabled(),
+        request.smsApiKey(),
+        request.smsSenderId());
     settingsRepository.save(settings);
 
     logSettingsUpdate(authentication, "Integrations", httpRequest);

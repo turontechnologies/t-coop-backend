@@ -48,7 +48,7 @@ exclusion is safer than turning Defender off entirely).
 
 ## Stack
 
-- **Java 21** + **Spring Boot 3.3**
+- **Java 25** + **Spring Boot 3.3**
 - **Spring Data JPA** (Hibernate) for persistence
 - **MSSQL** (Azure SQL Database) via the official `mssql-jdbc` driver
 - **Flyway** for schema migrations — every table/column change is a

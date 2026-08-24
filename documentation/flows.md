@@ -450,3 +450,95 @@ mock behavior) but are never read by the live Paystack integration, which
 always uses the server's own `PAYSTACK_SECRET_KEY` environment variable —
 see the javadoc on `IntegrationSettingsUpdateRequest` before wiring these
 saved values into anything that actually moves money.
+
+## Notifications and Notice Board flow (built 2026-08-24)
+
+Two things landed together in the same session because they're coupled: a generic
+per-recipient notification feed (didn't exist on the backend at all before this), and turning
+Notice Board from a per-browser `localStorage` mock into a real, tenant-isolated feature —
+Notice Board posts are the flow that most directly needed real notifications to mean anything
+("the right people get the right notification" is impossible if "the right people" only means
+"other tabs in the same browser").
+
+**Why fan-out happens at write time, into one row per recipient, instead of a shared broadcast
+row.** The alternative — one notification row plus a separate "who's read it" join table — is the
+more normalized design, and was rejected on purpose: with one row per recipient, tenant isolation
+is structural (a query for "my notifications" is just `WHERE recipient_member_id = me`, there is
+no row that could theoretically belong to someone else), and read/unread state is a single boolean
+column with no join needed. The cost is some write amplification when a notice targets "All
+Members & Admins" across a large co-op — judged worth it for the isolation guarantee, given the
+user's explicit requirement that co-op A's events must never be visible to co-op B "only if super
+admin passes the same message to all of them."
+
+**Trigger points, all going through the same `NotificationService`:**
+
+| Event | Where it's hooked | Recipient(s) |
+|---|---|---|
+| Subscription renewed (manual or self-service) | `SubscriptionController.applyPayment` (the one method both `recordPayment` and `confirmPayment` funnel through) | Co-op's admin only |
+| Subscription expiring within 7 days | `SubscriptionExpiryReminderJob`, daily 08:00 UTC | Co-op's admin only |
+| Subscription already expired | Same job, separate notification type, fires once per lapse | Co-op's admin only |
+| Notice Board post created/resent | `NoticeController.fanOutNotifications`, keyed on the notice's `recipient` field | Per notice's own targeting — admin only / members only / everyone, per targeted co-op(s) |
+| Co-op onboarded | `CooperativeController.create` | The new admin |
+| Co-op enabled/disabled | `CooperativeController.updateStatus` | That co-op's admin |
+| Member added | `CooperativeController.addMember` | The new member |
+| Member activated/disabled | `CooperativeController.updateMemberStatus` | That member |
+| Platform-staff invite accepted | `PlatformInviteAcceptController.accept` | Every `super_admin` |
+
+Why the recipient choice for subscription notifications is admin-only, not the whole co-op: the
+admin is the only one with agency to act on it (they're the one who sees the Subscriptions/Support
+page and can pay), and members can't do anything about a subscription state — a deliberate,
+user-confirmed scope decision, not an oversight.
+
+**`SubscriptionGateFilter` had to learn about `/notifications/**`.** It was already exempting
+`/subscriptions/me/**` so a dormant co-op's admin could pay their way back in; without the same
+exemption for notifications, that same admin couldn't even mark their own "your subscription
+expired" notification as read — caught by testing, not by inspection, and fixed the same session.
+
+**Notice Board's tenant isolation, concretely:** every notice has a required, non-empty
+`targetCoopIds` (no "empty means broadcast to everyone" fallback the old mock had). An admin's
+`targetCoopIds` in a create request is silently overridden to `[their own cooperativeId]` server
+side — sending someone else's co-op id in the request body does nothing. `NoticeController
+.isVisible` is the single gate every read/reply/resend/delete goes through, mirroring the old
+frontend-only `isNoticeVisibleToRole`/`noticeTargetsCoop` pair but now enforced once, server-side,
+instead of duplicated (and therefore riskier to keep in sync) across every page that read notices.
+
+**Attachments moved off base64.** The old mock inlined a file as a base64 `data:` URL directly in
+the notice record; a new `POST /uploads/attachment` endpoint (Cloudinary, `resource_type: auto` so
+PDFs/Word docs work) returns a real hosted URL instead, stored in `notices.attachment_url`. Same
+2MB cap as before, now a deliberate server-side limit rather than an artifact of `localStorage`'s
+quota.
+
+See `documentation/api-contracts.md` sections 7, 11, and 14 for the full endpoint contracts.
+
+### Real Email/SMS delivery for Notice Board (built same day, later in the session)
+
+The in-app notification above always fires regardless of a notice's `medium`; Email and SMS are
+additional, best-effort delivery on top of it, added once the notification system itself was
+proven working.
+
+- **Email** — `EmailService.sendNoticeEmail`, no new infrastructure: reuses the same Gmail SMTP
+  path already proven for OTP/welcome/receipt emails. Fires whenever `medium` includes "Email".
+- **SMS** — genuinely new: `SmsService` (`com.turontechnologies.tcoop.notice`), calling Termii's
+  REST API (`https://api.ng.termii.com/api/sms/send`) via plain `java.net.http.HttpClient`, same
+  style as `PaymentGatewayService`'s Paystack/Flutterwave verification calls. Termii was picked
+  for its free trial credit and Nigeria-first fit (matches the platform's existing NGN/Paystack/
+  OPay-first design) — the user explicitly asked for "something free for now." Credentials
+  (`smsApiKey`, `smsSenderId`) live on the same `PlatformSettings` singleton as the payment
+  gateways (`V21__sms_integration.sql`), read live, never a static env var.
+- **Both are best-effort, in `NoticeController.fanOutNotifications`**: a failure (bad credentials,
+  Termii rejecting the send, network error) is logged and never blocks the notice or its in-app
+  notification. Real-world testing against the user's actual Termii account hit
+  `SENDER_ID_NOT_APPROVED` — the platform's Termii workspace has no approved Sender ID yet. This
+  is a Termii-dashboard step for the user (register or find their assigned Sender ID, then set it
+  in Settings → Integrations → SMS → Sender ID), not a code problem — the request/response/error
+  handling all verified correct via the real error Termii returned.
+- **A real mistake happened and was caught mid-session**: a test `PATCH /settings/integrations`
+  call sent a fresh payload instead of GET-then-merging onto the existing saved settings, briefly
+  wiping the user's just-saved real Paystack/Flutterwave keys. Caught immediately (the values were
+  still visible in the preceding GET call's output) and restored in the very next call — verified
+  correct afterward. Lesson for next time: **never PATCH a shared settings resource with a
+  fresh/test payload without first GETting current state and merging onto it** — even a "just
+  testing" call is a real write against real saved data.
+- Phone numbers are normalized to Termii's expected shape (`SmsService.normalizePhone` — handles
+  `0801...`, `+234801...`, and `234801...` input shapes, all common in this app's `Member.phone`
+  field) before sending.

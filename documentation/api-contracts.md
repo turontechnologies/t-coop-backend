@@ -512,31 +512,50 @@ or out of scope for this phase, then add a `POST /loans/:id/repayments` endpoint
 
 ---
 
-## 7. Notices
+## 7. Notices — **built** (2026-08-24)
 
 ```ts
-// Notice shape
+// Notice shape (GET/POST response)
 {
-  "id": "string", "type": "General|Meeting Notice|Meeting Minutes",
+  "id": "uuid", "type": "General|Meeting Notice|Meeting Minutes",
   "title": "string", "message": "string",
   "recipient": "All Members|All Admins|All Members & Admins",
   "medium": "Email|SMS|Email & SMS",
-  "meetingDate": "iso-date?",           // only for "Meeting Notice"
+  "meetingDate": "iso-date|null",       // only for "Meeting Notice"
   "attachment": { "name": "string", "url": "string", "size": 12345 } | null,
-  "sendAt": "iso-datetime",             // future = scheduled, not yet sent
+  "sendAt": "iso-instant",              // future = scheduled, not yet sent
+  "status": "Scheduled|Sent",           // derived server-side, not stored
   "createdByName": "string", "createdByRole": "super_admin|admin|member",
-  "createdAt": "iso-datetime"
+  "createdAt": "iso-instant",
+  "targetCoopIds": ["string"]           // always non-empty; see tenant-isolation note below
 }
 ```
 
-- `GET /notices` — list. `member` role should only receive notices already sent (`sendAt <= now`) and addressed to them (`recipient` includes their role).
-- `POST /notices` — create. Request = above minus `id/createdByName/createdByRole/createdAt`. Attachment as multipart file, not base64.
-- `GET /notices/:id` — detail.
-- `DELETE /notices/:id` — also deletes its replies.
-- `POST /notices/:id/resend` — sets `sendAt` to now.
-- `GET /notices/:id/replies` — `[{ "id", "noticeId", "authorId", "authorName", "authorRole", "authorAvatarUrl", "message", "createdAt" }]`.
+**Tenant isolation is enforced server-side, not just by what the client sends.** An admin caller's
+`targetCoopIds` in the create request is ignored/overridden to `[their own cooperativeId]` — only
+a `super_admin` caller can actually address more than one co-op, and even then every id must exist.
+The same `isVisible(notice, caller)` check gates every read/reply/resend/delete: `super_admin` sees
+everything; `admin`/`member` only ever see notices targeting their own co-op, and a `member` never
+sees a still-`Scheduled` one or one whose `recipient` excludes them.
+
+- `GET /notices` — list (capped at 300, newest `sendAt` first), scoped per caller as above.
+- `POST /notices` — create. `sendAt` is the final computed ISO instant (frontend resolves "now" vs
+  scheduled date+time before sending). `attachment`, if present, is `{name, url, size}` — get the
+  `url` from `POST /uploads/attachment` first (see section 11). A notice created for "now" notifies
+  its audience immediately via the Notifications system (section 14) and, per its `medium`, sends
+  real email (`EmailService.sendNoticeEmail`, always available) and/or real SMS
+  (`SmsService`/Termii, needs Settings → Integrations configured — see section 13); a scheduled
+  one only notifies/emails/texts once resent — no minute-granularity dispatcher exists for the
+  exact scheduled moment.
+- `GET /notices/:id` — detail; 404 (not 403) if the caller can't see it, to avoid leaking existence.
+- `DELETE /notices/:id` — also deletes its replies and target rows (DB cascade).
+- `POST /notices/:id/resend` — sets `sendAt` to now, re-fires the notification fan-out.
+- `GET /notices/:id/replies` — `[{ "id", "noticeId", "authorId", "authorName", "authorRole", "authorAvatarUrl", "message", "createdAt" }]` — author fields resolved live from the current `Member` row, not a snapshot.
 - `POST /notices/:id/replies` — `{ "message": "string" }`.
-- `POST /notices/:id/read` — marks read for the current user (for read-receipt tracking across devices).
+
+No per-notice read-tracking endpoint — that concern moved entirely to the generic Notifications
+system (section 14); a notice itself doesn't carry read state anymore, only the notification that
+pointed to it does.
 
 ---
 
@@ -767,7 +786,25 @@ field: file (png/jpeg/webp, max 5MB)
 { "url": "string" }
 ```
 
-Currently only used for avatars — should also replace the base64 storage used today for savings receipts, loan-guarantor documents, and notice attachments (all currently stored as base64 data URLs directly in records, which won't scale).
+Used for avatars — should also replace the base64 storage still used today for savings receipts and loan-guarantor documents (not yet, since those flows themselves are still mock). Notice attachments already moved off base64 — see below.
+
+### `POST /uploads/attachment` — **built**
+
+```
+Content-Type: multipart/form-data
+field: file (png/jpeg/pdf/doc/docx, max 2MB)
+```
+
+```json
+// Response
+{ "url": "string", "name": "string", "size": 12345 }
+```
+
+Wider file-type allowlist than `/uploads` above (a Notice Board attachment is realistically a PDF
+or Word doc, not just an avatar image), `resource_type: "auto"` on the Cloudinary call so
+non-image files store correctly, folder `t-coop/notice-attachments`. Feed the returned `url` into
+`POST /notices`' `attachment` field (section 7) — replaces the old approach of inlining the file as
+base64 directly into the notice record.
 
 ---
 
@@ -836,21 +873,33 @@ co-operative's account.
   "flutterwaveEnabled": false,
   "flutterwavePublicKey": "string?",
   "flutterwaveSecretKey": "string?",
-  "flutterwaveEncryptionKey": "string?"
+  "flutterwaveEncryptionKey": "string?",
+  "opayEnabled": false,
+  "opayPublicKey": "string?",
+  "opaySecretKey": "string?",
+  "opayMerchantId": "string?",
+  "smsEnabled": false,
+  "smsApiKey": "string?",
+  "smsSenderId": "string?"
 }
 ```
 
-**Stored for reference only — never wired into a live payment call.** The
-real Paystack integration (`t-coop-app/src/app/api/paystack/*`) always reads
-its keys from the server environment (`PAYSTACK_SECRET_KEY`), never from
-values saved here; Flutterwave has no live route handler at all. Don't
-change that without a deliberate decision — see the javadoc on
-`IntegrationSettingsUpdateRequest`.
+**Paystack/Flutterwave credentials here are reference only — never wired into a live payment
+call.** The real Paystack integration (`t-coop-app/src/app/api/paystack/*`) always reads its keys
+from the server environment (`PAYSTACK_SECRET_KEY`), never from values saved here; Flutterwave has
+no live payout route handler at all. Don't change that without a deliberate decision — see the
+javadoc on `IntegrationSettingsUpdateRequest`. **OPay and SMS are different — both are read live**:
+OPay by `PaymentGatewayService` on every subscription checkout (section 8), SMS by `SmsService`
+(`com.turontechnologies.tcoop.notice`) whenever a Notice Board post's medium includes "SMS"
+(section 7/14) — Termii is the only SMS provider wired up. `smsSenderId` must be an alphanumeric
+Sender ID approved in the platform's Termii dashboard, or sends fail with
+`SENDER_ID_NOT_APPROVED` (logged, non-fatal — the in-app notification still fires).
 
 **Built.** `PlatformSettingsController`/`PlatformSettings`/`PlatformSettingsRepository`
-(`V6__add_collection_account_and_integrations.sql` added the columns to the
-existing singleton). Every update audit-logged (module `Settings` / action
-`Update` / resource `Fees & Charges` / `Collections Account` / `Integrations`).
+(`V6__add_collection_account_and_integrations.sql` added the Paystack/Flutterwave columns to the
+existing singleton, `V14__opay_integration.sql` added OPay's, `V21__sms_integration.sql` added
+SMS's). Every update audit-logged (module `Settings` / action `Update` / resource `Fees & Charges`
+/ `Collections Account` / `Integrations`).
 
 **Known gap:** Paystack/Flutterwave secret fields are stored as plain
 `NVARCHAR`, not encrypted at rest — acceptable for now since they're
@@ -858,6 +907,53 @@ explicitly non-live "reference" values (mirrors the mock's prior
 in-memory-only behavior, not a regression), but genuine secret-at-rest
 handling (encryption, masked responses) would be needed before this ever
 becomes the live credential source.
+
+---
+
+## 14. Notifications — **built** (2026-08-24)
+
+The generic, per-recipient notification feed every real event on the platform fans into —
+subscription lifecycle, Notice Board posts, co-op onboarding/status, member added/status,
+platform-staff invite acceptance. See `documentation/flows.md`'s "Notifications" section for the
+full design rationale (why fan-out happens at write time into one row per recipient, rather than a
+shared broadcast row) and the complete list of trigger points.
+
+```ts
+// Notification shape
+{
+  "id": 123, "type": "SUBSCRIPTION_EXPIRING|SUBSCRIPTION_EXPIRED|SUBSCRIPTION_RENEWED|NOTICE_BOARD|COOPERATIVE_WELCOME|COOPERATIVE_STATUS|MEMBER_ADDED|MEMBER_STATUS|PLATFORM_STAFF_JOINED",
+  "title": "string", "message": "string",
+  "link": "string|null",     // relative frontend path to navigate to on click
+  "read": false,
+  "createdAt": "iso-instant"
+}
+```
+
+- `GET /notifications` — the caller's own feed only (never a path parameter — always scoped to
+  `authentication.getPrincipal()`), capped at 50, newest first.
+- `GET /notifications/unread-count` — `{ "count": 3 }`.
+- `PATCH /notifications/{id}/read` — 404 if the notification isn't the caller's own.
+- `PATCH /notifications/read-all`.
+
+**Exempted from `SubscriptionGateFilter`** (`/api/v1/notifications/**`, alongside
+`/subscriptions/me/**`) — a co-op with a lapsed subscription is exactly the co-op most likely to
+have a "your subscription expired" notification sitting unread, and marking it read must not
+itself be blocked by the very thing it's telling them about.
+
+**Recipient scoping is structural, never a query-time filter someone could get wrong** — see
+`NotificationService`: `notifyCoopAdmin` (a co-op's admin IS the member row whose id equals the
+co-op's own id), `notifyCoopEveryone`/`notifyCoopMembersOnly` (fan out to `MemberRepository
+.findAllByCooperativeId`), `notifyAllSuperAdmins`. Every call ends up as one row per recipient in
+the `notifications` table (`V19__notifications.sql`) — there is no broadcast row, so a member of
+co-op A can never see anything addressed to co-op B by construction, not by a role check that could
+be bypassed.
+
+**Subscription expiry reminders** run daily at 08:00 UTC (`SubscriptionExpiryReminderJob`, the
+first use of `@Scheduled`/`@EnableScheduling` in this codebase) — warns a co-op's admin when
+`subscriptionExpiresAt` is within 7 days, then once more (a different notification type) after it
+actually lapses. Dedup against re-warning every day this runs is keyed on the co-op's exact current
+`subscriptionExpiresAt` (`related_cooperative_id` + `related_expires_at` columns) — a renewal
+changes that date, which naturally reopens the door to a fresh warning next cycle.
 
 ---
 

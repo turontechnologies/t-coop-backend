@@ -7,6 +7,7 @@ import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import com.turontechnologies.tcoop.notification.NotificationService;
 import com.turontechnologies.tcoop.settings.PlatformSettings;
 import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -52,6 +53,7 @@ public class SubscriptionController {
   private final PaymentGatewayService paymentGatewayService;
   private final EmailService emailService;
   private final AuditLogService auditLogService;
+  private final NotificationService notificationService;
 
   @Value("${app.frontend-url}")
   private String frontendUrl;
@@ -65,7 +67,8 @@ public class SubscriptionController {
       PlatformSettingsRepository platformSettingsRepository,
       PaymentGatewayService paymentGatewayService,
       EmailService emailService,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      NotificationService notificationService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.subscriptionPaymentRepository = subscriptionPaymentRepository;
@@ -75,6 +78,7 @@ public class SubscriptionController {
     this.paymentGatewayService = paymentGatewayService;
     this.emailService = emailService;
     this.auditLogService = auditLogService;
+    this.notificationService = notificationService;
   }
 
   @GetMapping("/api/v1/subscriptions")
@@ -399,6 +403,15 @@ public class SubscriptionController {
             e.getMessage());
       }
     }
+
+    notificationService.notifyCoopAdmin(
+        coop.getId(),
+        "SUBSCRIPTION_RENEWED",
+        "Subscription active",
+        "Payment received — %s's subscription is active until %s (%s)."
+            .formatted(coop.getName(), newExpiresAt, cycle),
+        "/support");
+
     return payment;
   }
 

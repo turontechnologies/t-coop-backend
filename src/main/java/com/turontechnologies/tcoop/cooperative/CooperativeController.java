@@ -9,6 +9,7 @@ import com.turontechnologies.tcoop.savings.SavingsRecordRepository;
 import com.turontechnologies.tcoop.savings.SavingsTypeRepository;
 import com.turontechnologies.tcoop.auth.EmailDeliveryException;
 import com.turontechnologies.tcoop.auth.EmailService;
+import com.turontechnologies.tcoop.notification.NotificationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -49,6 +50,7 @@ public class CooperativeController {
   private final PasswordEncoder passwordEncoder;
   private final EmailService emailService;
   private final AuditLogService auditLogService;
+  private final NotificationService notificationService;
 
   public CooperativeController(
       CooperativeRepository cooperativeRepository,
@@ -59,7 +61,8 @@ public class CooperativeController {
       LoanTypeRepository loanTypeRepository,
       PasswordEncoder passwordEncoder,
       EmailService emailService,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      NotificationService notificationService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.savingsRecordRepository = savingsRecordRepository;
@@ -69,6 +72,7 @@ public class CooperativeController {
     this.passwordEncoder = passwordEncoder;
     this.emailService = emailService;
     this.auditLogService = auditLogService;
+    this.notificationService = notificationService;
   }
 
   @GetMapping("/api/v1/cooperatives")
@@ -189,6 +193,13 @@ public class CooperativeController {
         "Success",
         httpRequest);
 
+    notificationService.notify(
+        member.getId(),
+        "MEMBER_ADDED",
+        "Welcome to " + cooperativeRepository.findById(id).map(Cooperative::getName).orElse(id),
+        "Your account is ready. Log in with membership ID " + member.getId() + " to get started.",
+        "/profile");
+
     return ResponseEntity.ok(CoopMemberDto.from(member));
   }
 
@@ -270,6 +281,15 @@ public class CooperativeController {
         member.getFullName(),
         "Inactive".equals(request.status()) ? "Warning" : "Success",
         httpRequest);
+
+    notificationService.notify(
+        member.getId(),
+        "MEMBER_STATUS",
+        "Active".equals(request.status()) ? "Your account was reactivated" : "Your account was disabled",
+        "Active".equals(request.status())
+            ? "Your account is active again — you can log in as usual."
+            : "Your account has been disabled. Contact your co-operative's admin if this is unexpected.",
+        "/profile");
 
     return ResponseEntity.ok(CoopMemberDto.from(member));
   }
@@ -372,6 +392,14 @@ public class CooperativeController {
         "Success",
         httpRequest);
 
+    notificationService.notify(
+        admin.getId(),
+        "COOPERATIVE_WELCOME",
+        "Welcome to T-Coop",
+        coop.getName() + " is set up and ready to go. Log in with membership ID " + admin.getId()
+            + " to get started.",
+        "/profile");
+
     return ResponseEntity.ok(toDto(coop));
   }
 
@@ -473,6 +501,15 @@ public class CooperativeController {
         coop.getName(),
         "Disabled".equals(request.status()) ? "Warning" : "Success",
         httpRequest);
+
+    notificationService.notifyCoopAdmin(
+        coop.getId(),
+        "COOPERATIVE_STATUS",
+        "Disabled".equals(request.status()) ? "Your co-operative was disabled" : "Your co-operative was re-enabled",
+        "Disabled".equals(request.status())
+            ? coop.getName() + " has been disabled by the platform. Contact support for details."
+            : coop.getName() + " is active again — you and your members can log in as usual.",
+        "/profile");
 
     return ResponseEntity.ok(toDto(coop));
   }

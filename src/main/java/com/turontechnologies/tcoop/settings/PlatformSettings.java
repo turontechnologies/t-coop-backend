@@ -77,6 +77,15 @@ public class PlatformSettings {
   @Column(name = "opay_merchant_id")
   private String opayMerchantId;
 
+  @Column(name = "sms_enabled")
+  private boolean smsEnabled;
+
+  @Column(name = "sms_api_key")
+  private String smsApiKey;
+
+  @Column(name = "sms_sender_id")
+  private String smsSenderId;
+
   protected PlatformSettings() {
     // JPA
   }
@@ -165,6 +174,18 @@ public class PlatformSettings {
     return opayMerchantId;
   }
 
+  public boolean isSmsEnabled() {
+    return smsEnabled;
+  }
+
+  public String getSmsApiKey() {
+    return smsApiKey;
+  }
+
+  public String getSmsSenderId() {
+    return smsSenderId;
+  }
+
   public void updateFees(
       String savingsChargeType,
       BigDecimal savingsChargeAmount,
@@ -197,7 +218,10 @@ public class PlatformSettings {
       boolean opayEnabled,
       String opayPublicKey,
       String opaySecretKey,
-      String opayMerchantId) {
+      String opayMerchantId,
+      boolean smsEnabled,
+      String smsApiKey,
+      String smsSenderId) {
     this.paystackEnabled = paystackEnabled;
     this.paystackPublicKey = paystackPublicKey;
     this.paystackSecretKey = paystackSecretKey;
@@ -210,5 +234,8 @@ public class PlatformSettings {
     this.opayPublicKey = opayPublicKey;
     this.opaySecretKey = opaySecretKey;
     this.opayMerchantId = opayMerchantId;
+    this.smsEnabled = smsEnabled;
+    this.smsApiKey = smsApiKey;
+    this.smsSenderId = smsSenderId;
   }
 }

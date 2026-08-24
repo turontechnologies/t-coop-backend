@@ -21,4 +21,7 @@ public record IntegrationSettingsUpdateRequest(
     @NotNull(message = "opayEnabled is required") Boolean opayEnabled,
     String opayPublicKey,
     String opaySecretKey,
-    String opayMerchantId) {}
+    String opayMerchantId,
+    @NotNull(message = "smsEnabled is required") Boolean smsEnabled,
+    String smsApiKey,
+    String smsSenderId) {}
