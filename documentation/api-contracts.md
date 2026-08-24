@@ -539,7 +539,9 @@ everything; `admin`/`member` only ever see notices targeting their own co-op, an
 sees a still-`Scheduled` one or one whose `recipient` excludes them.
 
 - `GET /notices` — list (capped at 300, newest `sendAt` first), scoped per caller as above.
-- `POST /notices` — create. `sendAt` is the final computed ISO instant (frontend resolves "now" vs
+- `POST /notices` — create. **A `super_admin` caller may only use `recipient: "All Admins"`** — 403
+  otherwise (2026-08-24); reaching members directly is left to the co-op's own admin. `sendAt` is
+  the final computed ISO instant (frontend resolves "now" vs
   scheduled date+time before sending). `attachment`, if present, is `{name, url, size}` — get the
   `url` from `POST /uploads/attachment` first (see section 11). A notice created for "now" notifies
   its audience immediately via the Notifications system (section 14) and, per its `medium`, sends

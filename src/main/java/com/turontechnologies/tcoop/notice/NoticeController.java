@@ -109,6 +109,13 @@ public class NoticeController {
     if ("member".equals(caller.getRole())) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't create notices"));
     }
+    // A super admin only ever reaches a co-op's admin directly — it's that admin's own call
+    // whether/how to pass a platform-wide announcement on to their members, not the platform's.
+    // An admin (reaching only their own co-op either way) keeps all three recipient options.
+    if ("super_admin".equals(caller.getRole()) && !"All Admins".equals(request.recipient())) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "A super admin can only address co-operative admins, not members directly"));
+    }
 
     Set<String> targetCoopIds;
     if ("super_admin".equals(caller.getRole())) {

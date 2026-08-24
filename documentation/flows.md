@@ -542,3 +542,32 @@ proven working.
 - Phone numbers are normalized to Termii's expected shape (`SmsService.normalizePhone` — handles
   `0801...`, `+234801...`, and `234801...` input shapes, all common in this app's `Member.phone`
   field) before sending.
+
+### Notice Board recipient hierarchy tightened, Members Directory wired for real (same day)
+
+Two more asks, same session:
+
+- **A super admin can now only address a co-op's admin, never its members directly.** The user's
+  framing: "super admin can only send to the co-operative admin they created alone" — passing a
+  platform-wide message on to members is that admin's own call. `NoticeController.create` rejects
+  (403) any `recipient` other than `"All Admins"` from a `super_admin` caller; the frontend hides
+  the other two radio options for that role. An admin keeps all three (they only ever reach their
+  own co-op regardless, so "All Admins" there just means themself). A member still can't create
+  notices at all — read + reply only, unchanged, already correct before this change.
+- **Members Directory (`/members`, admin's own "add a member" page) is now fully real** — it was
+  the most-flagged known gap since the very first version of this file. It needed no new backend
+  work at all: `POST/PATCH /cooperatives/:id/members(/status)` already existed (built for the
+  super-admin co-op-detail Members tab), the admin-facing page just wasn't calling them yet. The
+  fix was entirely frontend — `coop-member.service.ts` gained `addMember`, and lost its mock
+  fallback entirely per explicit user request ("no mock data now, all should be from the
+  backend"); `/members`'s three pages stopped reading `ADMIN_DIRECTORY_COOP_ID`/the mock store and
+  now derive the co-op from the signed-in admin's own id. Bulk import's template gained a required
+  `Phone` column (and made `Country` actually required) since the real endpoint needs both and the
+  old template didn't collect Phone at all. **Verified end-to-end for real**: admin adds a member
+  through the real endpoint → real `MEMBER_ADDED` notification fires → the new member logs in with
+  the exact membership ID the admin chose and the platform default password (`admin123`) → works.
+  Test member/notification cleaned up afterward.
+- **Confirmed, not touched**: the super admin's top-level `/loans` (and `/savings`) page was
+  already fully real — `SuperAdminLoansView`/`SuperAdminLoansTable` use `useCooperatives()` (real)
+  and route into the already-real `/co-operatives/[id]?tab=loans` drill-down. This is a different
+  route tree from admin/member's own `/loans`, which is still the known-mock write-side gap.
