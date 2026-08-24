@@ -286,6 +286,9 @@ public class LoanController {
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
 
+  /** A member with a coopRoleId (assigned via CoopUserController) gets the same co-op-scoped
+   * access as the admin, for their own co-op only — see CooperativeController's requireCoopAccess
+   * for the full reasoning. */
   private CoopAccess requireCoopAccess(Authentication authentication, String cooperativeId) {
     String callerId = (String) authentication.getPrincipal();
     Member caller = memberRepository.findById(callerId).orElse(null);
@@ -295,7 +298,8 @@ public class LoanController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    if ("admin".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    if (isCoopStaff && cooperativeId.equals(caller.getCooperativeId())) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

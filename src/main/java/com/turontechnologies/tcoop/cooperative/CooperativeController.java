@@ -605,7 +605,11 @@ public class CooperativeController {
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
 
   /** Super admin can access any co-op's members; an admin only their own — never trusts the
-   * path's {id} for an admin caller, always checks it against their own cooperativeId. */
+   * path's {id} for an admin caller, always checks it against their own cooperativeId. A member
+   * with a coopRoleId (assigned a role via CoopUserController) gets the same co-op-scoped access
+   * as the admin, for their own co-op only — the frontend's nav restricts which of these pages
+   * they actually use day to day, but the backend grant itself isn't split per-permission, same
+   * trust boundary "support" platform staff already have relative to super_admin endpoints. */
   private CoopAccess requireCoopAccess(Authentication authentication, String cooperativeId) {
     String callerId = (String) authentication.getPrincipal();
     Member caller = memberRepository.findById(callerId).orElse(null);
@@ -615,7 +619,8 @@ public class CooperativeController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    if ("admin".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    if (isCoopStaff && cooperativeId.equals(caller.getCooperativeId())) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

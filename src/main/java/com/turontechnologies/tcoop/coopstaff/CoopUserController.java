@@ -158,6 +158,10 @@ public class CoopUserController {
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
 
+  /** Deliberately NOT widened to a coopRoleId holder, unlike Savings/Loans/Cooperative's
+   * requireCoopAccess — this controller decides who gets what access in the first place (assign/
+   * revoke a role), so letting an assigned staff member reach it too would let them grant
+   * themselves (or anyone else) more permissions than they were given. Stays admin/super_admin. */
   private CoopAccess requireCoopAccess(Authentication authentication, String cooperativeId) {
     String callerId = (String) authentication.getPrincipal();
     Member caller = memberRepository.findById(callerId).orElse(null);

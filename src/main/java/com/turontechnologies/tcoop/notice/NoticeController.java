@@ -106,7 +106,7 @@ public class NoticeController {
       HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
-    if ("member".equals(caller.getRole())) {
+    if (!canManageNotices(caller)) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't create notices"));
     }
     // A super admin only ever reaches a co-op's admin directly — it's that admin's own call
@@ -177,7 +177,7 @@ public class NoticeController {
       Authentication authentication, @PathVariable UUID id, HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
-    if ("member".equals(caller.getRole())) {
+    if (!canManageNotices(caller)) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't manage notices"));
     }
 
@@ -202,7 +202,7 @@ public class NoticeController {
       Authentication authentication, @PathVariable UUID id, HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
-    if ("member".equals(caller.getRole())) {
+    if (!canManageNotices(caller)) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't manage notices"));
     }
 
@@ -270,6 +270,14 @@ public class NoticeController {
     return ResponseEntity.ok(NoticeReplyDto.from(reply, caller));
   }
 
+  /** A member with a coopRoleId (assigned via CoopUserController, see CooperativeController's
+   * requireCoopAccess for the full reasoning) gets the same Notice Board management access as an
+   * admin — a plain member (no coopRoleId) still can't create/resend/delete, or see anything
+   * beyond what's addressed to them. */
+  private boolean canManageNotices(Member caller) {
+    return !"member".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+  }
+
   /** Mirrors the frontend's original isNoticeVisibleToRole + noticeTargetsCoop pair, now as the
    * single server-side gate every read/reply/resend/delete goes through — this is what makes
    * tenant isolation real instead of a client-side filter someone could bypass. */
@@ -280,10 +288,10 @@ public class NoticeController {
     if (coopId == null || !notice.targetsCoop(coopId)) return false;
 
     if (!notice.isSent()) {
-      // A scheduled notice is only visible to whoever manages the co-op, not members.
-      return !"member".equals(caller.getRole());
+      // A scheduled notice is only visible to whoever manages the co-op, not a plain member.
+      return canManageNotices(caller);
     }
-    if ("member".equals(caller.getRole())) {
+    if (!canManageNotices(caller)) {
       return "All Members".equals(notice.getRecipient()) || "All Members & Admins".equals(notice.getRecipient());
     }
     return true;
