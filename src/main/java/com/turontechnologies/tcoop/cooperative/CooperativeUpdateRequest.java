@@ -1,9 +1,16 @@
 package com.turontechnologies.tcoop.cooperative;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import java.math.BigDecimal;
 
+/** {@code currency}/{@code withdrawalFeePercent} are optional (null = leave unchanged) —
+ * this endpoint is shared by the super admin's original "Edit Co-operative" form (which never
+ * sent either) and the admin's newer Co-operative Settings tab (which does); making them
+ * required would have broken the former. */
 public record CooperativeUpdateRequest(
     @NotBlank(message = "Enter the co-operative name") String name,
     @NotBlank(message = "Enter the admin's first name") String adminFirstName,
@@ -17,4 +24,8 @@ public record CooperativeUpdateRequest(
     @NotBlank(message = "Enter the co-operative's address") String address,
     @NotBlank(message = "Select a country") String country,
     @NotBlank(message = "Select a state") String state,
-    @NotBlank(message = "Select a city") String city) {}
+    @NotBlank(message = "Select a city") String city,
+    String currency,
+    @DecimalMin(value = "0", message = "Enter a percentage of 0 or more")
+        @DecimalMax(value = "100", message = "Enter a percentage of 100 or less")
+        BigDecimal withdrawalFeePercent) {}

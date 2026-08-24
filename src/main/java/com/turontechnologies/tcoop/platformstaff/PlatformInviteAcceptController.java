@@ -24,7 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The public (unauthenticated, {@code /api/v1/platform-invites/**} is permitAll — see
  * SecurityConfig) side of the platform-staff invite flow — nobody here has a JWT yet. Mirrors
- * PasswordResetController's shape: look up by opaque token, validate expiry, act once.
+ * PasswordResetController's shape: look up by opaque token, validate expiry, act once. Platform
+ * staff only — a co-op's own staff are assigned a CoopRole directly (see CoopUserController),
+ * never invited through here, since they already have an active account.
  */
 @RestController
 public class PlatformInviteAcceptController {

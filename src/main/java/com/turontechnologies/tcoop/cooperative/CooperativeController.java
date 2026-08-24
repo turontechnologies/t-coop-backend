@@ -85,10 +85,12 @@ public class CooperativeController {
     return ResponseEntity.ok(dtos);
   }
 
+  /** Super admin can view any co-op; an admin can also view their own now — needed for their
+   * Settings -> Co-operative/Savings/Loans tabs, which all read this before editing. */
   @GetMapping("/api/v1/cooperatives/{id}")
   public ResponseEntity<?> get(Authentication authentication, @PathVariable String id) {
-    var forbidden = requireSuperAdmin(authentication);
-    if (forbidden != null) return forbidden;
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -403,14 +405,17 @@ public class CooperativeController {
     return ResponseEntity.ok(toDto(coop));
   }
 
+  /** A super admin can edit any co-op; an admin can only edit their own (matching the same
+   * access rule as Members management) — this used to be super-admin-only, opened up so an
+   * admin can maintain their own co-op's details, currency, and withdrawal fee. */
   @PatchMapping("/api/v1/cooperatives/{id}")
   public ResponseEntity<?> update(
       Authentication authentication,
       @PathVariable String id,
       @Valid @RequestBody CooperativeUpdateRequest request,
       HttpServletRequest httpRequest) {
-    var forbidden = requireSuperAdmin(authentication);
-    if (forbidden != null) return forbidden;
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -426,6 +431,12 @@ public class CooperativeController {
         request.country(),
         request.state(),
         request.city());
+    if (request.currency() != null && !request.currency().isBlank()) {
+      coop.setCurrency(request.currency());
+    }
+    if (request.withdrawalFeePercent() != null) {
+      coop.setWithdrawalFeePercent(request.withdrawalFeePercent());
+    }
     cooperativeRepository.save(coop);
 
     // The co-op's admin Member row (id == coop id) is what the admin actually logs in and edits
@@ -457,10 +468,41 @@ public class CooperativeController {
 
     auditLogService.log(
         adminIdOf(authentication),
-        "super_admin",
+        access.caller().getRole(),
         "Co-operatives",
         "Update",
         coop.getName(),
+        "Success",
+        httpRequest);
+
+    return ResponseEntity.ok(toDto(coop));
+  }
+
+  /** The co-op's own receiving account — a super admin can view/edit any, an admin only their
+   * own, same {@link #requireCoopAccess} rule as everything else scoped to one co-op. */
+  @PatchMapping("/api/v1/cooperatives/{id}/bank-account")
+  public ResponseEntity<?> updateBankAccount(
+      Authentication authentication,
+      @PathVariable String id,
+      @Valid @RequestBody CoopBankAccountUpdateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+
+    coop.updateBankAccount(request.bankCode(), request.accountNumber(), request.accountName());
+    cooperativeRepository.save(coop);
+
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Co-operatives",
+        "Update",
+        coop.getName() + " (bank account)",
         "Success",
         httpRequest);
 
@@ -532,6 +574,10 @@ public class CooperativeController {
         coop.getCity(),
         coop.getStatus(),
         coop.getCurrency(),
+        coop.getWithdrawalFeePercent(),
+        coop.getBankCode(),
+        coop.getAccountNumber(),
+        coop.getAccountName(),
         memberCount,
         savingsTypeCount,
         loanTypeCount,

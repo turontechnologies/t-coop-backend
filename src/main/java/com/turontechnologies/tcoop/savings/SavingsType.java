@@ -79,4 +79,14 @@ public class SavingsType {
   public LocalDateTime getCreatedAt() {
     return createdAt;
   }
+
+  public void update(String name, BigDecimal minAmount, BigDecimal maxAmount) {
+    this.name = name;
+    this.minAmount = minAmount;
+    this.maxAmount = maxAmount;
+  }
+
+  public void setStatus(String status) {
+    this.status = status;
+  }
 }

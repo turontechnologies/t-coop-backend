@@ -1,6 +1,8 @@
 package com.turontechnologies.tcoop.auth;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopstaff.CoopRole;
+import com.turontechnologies.tcoop.coopstaff.CoopRoleRepository;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
@@ -29,6 +31,7 @@ public class AuthController {
   private final MemberRepository memberRepository;
   private final CooperativeRepository cooperativeRepository;
   private final PlatformRoleRepository platformRoleRepository;
+  private final CoopRoleRepository coopRoleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final AuditLogService auditLogService;
@@ -37,12 +40,14 @@ public class AuthController {
       MemberRepository memberRepository,
       CooperativeRepository cooperativeRepository,
       PlatformRoleRepository platformRoleRepository,
+      CoopRoleRepository coopRoleRepository,
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
       AuditLogService auditLogService) {
     this.memberRepository = memberRepository;
     this.cooperativeRepository = cooperativeRepository;
     this.platformRoleRepository = platformRoleRepository;
+    this.coopRoleRepository = coopRoleRepository;
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
     this.auditLogService = auditLogService;
@@ -53,13 +58,19 @@ public class AuthController {
         "admin".equals(member.getRole()) && member.getCooperativeId() != null
             ? cooperativeRepository.findById(member.getCooperativeId()).orElse(null)
             : null;
-    List<String> permissionModules =
-        "support".equals(member.getRole()) && member.getPlatformRoleId() != null
-            ? platformRoleRepository
-                .findById(member.getPlatformRoleId())
-                .map(PlatformRole::getPermissions)
-                .orElse(List.of())
-            : null;
+    List<String> permissionModules;
+    if ("support".equals(member.getRole()) && member.getPlatformRoleId() != null) {
+      permissionModules =
+          platformRoleRepository
+              .findById(member.getPlatformRoleId())
+              .map(PlatformRole::getPermissions)
+              .orElse(List.of());
+    } else if (member.getCoopRoleId() != null) {
+      permissionModules =
+          coopRoleRepository.findById(member.getCoopRoleId()).map(CoopRole::getPermissions).orElse(List.of());
+    } else {
+      permissionModules = null;
+    }
     return MemberDto.from(member, coop, permissionModules);
   }
 

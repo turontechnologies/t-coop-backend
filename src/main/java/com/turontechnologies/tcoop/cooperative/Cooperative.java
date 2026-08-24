@@ -43,6 +43,17 @@ public class Cooperative {
   @Column(name = "subscription_expires_at")
   private LocalDate subscriptionExpiresAt;
 
+  /** The co-op's own receiving account — distinct from its admin's personal payout account
+   * (Member.bankCode/accountNumber/accountName), which is a different, unrelated field. */
+  @Column(name = "bank_code")
+  private String bankCode;
+
+  @Column(name = "account_number")
+  private String accountNumber;
+
+  @Column(name = "account_name")
+  private String accountName;
+
   protected Cooperative() {
     // JPA
   }
@@ -134,6 +145,18 @@ public class Cooperative {
     return subscriptionExpiresAt;
   }
 
+  public String getBankCode() {
+    return bankCode;
+  }
+
+  public String getAccountNumber() {
+    return accountNumber;
+  }
+
+  public String getAccountName() {
+    return accountName;
+  }
+
   /**
    * A co-op can act on the platform only while this is true — null (never subscribed) and a
    * past date (lapsed) are treated identically. See SubscriptionGateFilter, the single
@@ -171,5 +194,19 @@ public class Cooperative {
 
   public void setStatus(String status) {
     this.status = status;
+  }
+
+  public void setCurrency(String currency) {
+    this.currency = currency;
+  }
+
+  public void setWithdrawalFeePercent(BigDecimal withdrawalFeePercent) {
+    this.withdrawalFeePercent = withdrawalFeePercent;
+  }
+
+  public void updateBankAccount(String bankCode, String accountNumber, String accountName) {
+    this.bankCode = bankCode;
+    this.accountNumber = accountNumber;
+    this.accountName = accountName;
   }
 }

@@ -92,7 +92,15 @@ Sends the OTP by email/SMS server-side. **Do not return the OTP in the response*
 
 ---
 
-## 2. Cooperatives (super_admin only)
+## 2. Cooperatives
+
+**No longer super_admin-only** — every endpoint below uses the same `requireCoopAccess` pattern
+as §3: a `super_admin` caller can act on any co-op; an `admin` caller only their own (`{id}` must
+equal their own `cooperativeId`, checked server-side, `{id}` in the URL is never trusted blindly).
+This widened over two sessions — `GET/PATCH /cooperatives/:id` were still super_admin-only until
+the admin-Settings work below needed them and it was caught via a live test against the real
+backend (the admin-facing frontend forms 404'd/403'd the first time they were pointed at real
+data — fixed same session, not a pre-existing bug that shipped).
 
 **A co-op IS its admin account.** Onboarding a co-op creates exactly one `Member` row
 (`role: "admin"`) whose `id` is the co-op's own `id` — not a separately generated one. That
@@ -121,6 +129,10 @@ Returns list with computed totals (backend computes `memberCount`, `savingsTypeC
     "city": "string",
     "status": "Active|Disabled",
     "currency": "NGN",
+    "withdrawalFeePercent": 1.5,
+    "bankCode": "string?",
+    "accountNumber": "string?",
+    "accountName": "string?",
     "memberCount": 12,
     "savingsTypeCount": 3,
     "loanTypeCount": 3,
@@ -208,10 +220,26 @@ actions as if they persist against this data.
 // Response: the updated Cooperative (same shape as GET /cooperatives item)
 ```
 
+`currency` and `withdrawalFeePercent` are optional on this same request — omitted/null means
+"don't touch" (the super admin's own edit form never sends them; the admin's Settings → Currency
+and → Withdrawal Fee tabs do, via a GET-then-merge-then-PATCH of the whole record, same pattern as
+everything else in this codebase that shares one update endpoint across two forms).
+
 Since the co-op's admin identity lives on the same `Member` row the admin logs in and edits
 their own profile as (see above), this endpoint also writes `adminFirstName`/`adminLastName`/
 `contactEmail`/`contactPhone` through to that row — a super admin's edit here is what the
 admin sees reflected in their own portal, immediately, with no separate sync step.
+
+### `PATCH /cooperatives/:id/bank-account`
+
+The co-op's own receiving account (separate from any individual member's, including the admin's
+own personal one on `/profile`). No "unset" — `bankCode`/`accountNumber` are required.
+
+```json
+// Request
+{ "bankCode": "string", "accountNumber": "10 digits", "accountName": "string?" }
+// Response: the updated Cooperative (same shape as GET /cooperatives item)
+```
 
 ### `PATCH /cooperatives/:id/status`
 
@@ -332,6 +360,24 @@ is purely a future task).
 the frontend's pre-existing `SAVINGS_EARNINGS_RATE`, same honesty note as the dashboard's
 dividends figure). `total`/`earnings` only ever sum `Success`-status records.
 
+### `POST /cooperatives/:id/savings/types` / `PATCH .../types/:typeId` / `PATCH .../types/:typeId/status` — **built**
+
+The management UI this file's older note said didn't exist yet — it does now, `requireCoopAccess`
+(admin manages their own, super admin any). Request/response both use `minAmount`/`maxAmount` on
+the way in (matching `SavingsTypeCreateRequest`) but `min`/`max` on the way out (matching the DTO
+above) — a real, intentional naming mismatch between request and response, not a typo.
+
+```json
+// POST/PATCH request
+{ "name": "string", "minAmount": 5000, "maxAmount": 10000 }
+// PATCH .../status request
+{ "status": "Active|Inactive" }
+// All three respond with the updated row, same shape as the GET .../types list item above
+```
+
+No delete endpoint — deliberate, matching the "never destroy a savings type with live records
+against it" convention; disable it via the status endpoint instead.
+
 ### `GET /cooperatives/:id/savings` — **built**
 
 List savings records for one co-op, newest first. Every filter is optional:
@@ -420,7 +466,10 @@ gets these automatically going forward — see the migration's own note for why 
     "name": "Emergency Loan",
     "eligibilityPercent": 300,
     "durationMonths": 3,
+    "maxAmount": 200000,
+    "repaymentInterval": "Weekly|Monthly|Quarterly",
     "numberOfRepayments": 3,
+    "interestType": "Percentage|Fixed",
     "interestRate": 5,
     "status": "Active|Inactive",
     "earnings": 3500
@@ -431,6 +480,31 @@ gets these automatically going forward — see the migration's own note for why 
 `earnings` ("Earnings on Loan") = `sum(totalRepayment - amount)` over every non-`Rejected` loan
 of that type — real interest collected, not illustrative like Savings' 2% figure, matching the
 frontend's `coopLoansBySummaryType` math exactly.
+
+### `POST /cooperatives/:id/loans/types` / `PATCH .../types/:typeId` / `PATCH .../types/:typeId/status` — **built**
+
+Same pattern as Savings types above — `requireCoopAccess`, no delete, disable via status instead.
+Unlike Savings, request and response field names for the numeric/interest fields **do** differ:
+the request uses `numberOfInstallments`/`interestAmount`, the response (above) uses
+`numberOfRepayments`/`interestRate` — bridge this in the frontend service layer, don't rename one
+side to match the other without checking both `LoanType`/`LoanTypeCreateRequest` and
+`LoanTypeSummaryDto` first.
+
+```json
+// POST/PATCH request
+{
+  "name": "string",
+  "eligibilityPercent": 300,
+  "durationMonths": 3,
+  "maxAmount": 200000,
+  "repaymentInterval": "Weekly|Monthly|Quarterly",
+  "numberOfInstallments": 3,
+  "interestType": "Percentage|Fixed",
+  "interestAmount": 5
+}
+// PATCH .../status request
+{ "status": "Active|Inactive" }
+```
 
 ### `GET /cooperatives/:id/loans` — **built**
 
@@ -923,7 +997,7 @@ shared broadcast row) and the complete list of trigger points.
 ```ts
 // Notification shape
 {
-  "id": 123, "type": "SUBSCRIPTION_EXPIRING|SUBSCRIPTION_EXPIRED|SUBSCRIPTION_RENEWED|NOTICE_BOARD|COOPERATIVE_WELCOME|COOPERATIVE_STATUS|MEMBER_ADDED|MEMBER_STATUS|PLATFORM_STAFF_JOINED",
+  "id": 123, "type": "SUBSCRIPTION_EXPIRING|SUBSCRIPTION_EXPIRED|SUBSCRIPTION_RENEWED|NOTICE_BOARD|COOPERATIVE_WELCOME|COOPERATIVE_STATUS|MEMBER_ADDED|MEMBER_STATUS|PLATFORM_STAFF_JOINED|COOP_ROLE_ASSIGNED|COOP_ROLE_REMOVED",
   "title": "string", "message": "string",
   "link": "string|null",     // relative frontend path to navigate to on click
   "read": false,
@@ -943,9 +1017,10 @@ have a "your subscription expired" notification sitting unread, and marking it r
 itself be blocked by the very thing it's telling them about.
 
 **Recipient scoping is structural, never a query-time filter someone could get wrong** — see
-`NotificationService`: `notifyCoopAdmin` (a co-op's admin IS the member row whose id equals the
-co-op's own id), `notifyCoopEveryone`/`notifyCoopMembersOnly` (fan out to `MemberRepository
-.findAllByCooperativeId`), `notifyAllSuperAdmins`. Every call ends up as one row per recipient in
+`NotificationService`: `notify` (single recipient — used directly by Notice Board's own fan-out
+logic in `NoticeController`, not a `NotificationService` convenience method), `notifyCoopAdmin` (a
+co-op's admin IS the member row whose id equals the co-op's own id), `notifyAllSuperAdmins`. Every
+call ends up as one row per recipient in
 the `notifications` table (`V19__notifications.sql`) — there is no broadcast row, so a member of
 co-op A can never see anything addressed to co-op B by construction, not by a role check that could
 be bypassed.
@@ -956,6 +1031,64 @@ first use of `@Scheduled`/`@EnableScheduling` in this codebase) — warns a co-o
 actually lapses. Dedup against re-warning every day this runs is keyed on the co-op's exact current
 `subscriptionExpiresAt` (`related_cooperative_id` + `related_expires_at` columns) — a renewal
 changes that date, which naturally reopens the door to a fresh warning next cycle.
+
+---
+
+## 15. Co-op staff / admin's User Management — **built** (2026-08-24)
+
+Admin's own Settings → User Management. **Deliberately not shaped like Platform staff (§13's
+sibling, `com.turontechnologies.tcoop.platformstaff` — search `flows.md` for it, not documented
+in this file)** — no invite-by-email, no new account, no `Invited` status. An admin first adds
+the person as a regular member (§3, already real), then assigns them a `CoopRole` here to elevate
+their access. They keep their existing membership ID/password. `com.turontechnologies.tcoop.
+coopstaff` package. `requireCoopAccess` throughout (admin: own co-op only; super_admin: any).
+
+### `GET/POST /cooperatives/:id/roles`, `PATCH .../roles/:roleId`, `PATCH .../roles/:roleId/status`, `DELETE .../roles/:roleId`
+
+Identical shape/semantics to Platform staff's role endpoints, just co-op-scoped and permissions
+drawn from a different, smaller module list (`COOP_PERMISSION_MODULES` on the frontend — matches
+admin's own nav items, since a co-op staff member's nav is filtered against *that* list, not the
+super-admin one).
+
+```json
+// CoopRole
+{ "id": "uuid", "name": "string", "permissions": ["Members Directory", "Notice Board", "..."], "status": "Active|Inactive", "dateAdded": "iso-datetime" }
+```
+
+`DELETE` returns 409 if any member currently has this role (`MemberRepository.countByCoopRoleId`)
+— reassign or remove them first, same guard as Platform staff's roles.
+
+### `GET /cooperatives/:id/users`
+
+Members of this co-op who currently have a `CoopRole` assigned (`coopRoleId IS NOT NULL`).
+
+```json
+[{ "id": "MB-001", "name": "string", "email": "string", "role": "string (CoopRole name)", "status": "Active|Inactive" }]
+```
+
+`status` is the member's own real account status — there's no `Invited` pseudostate here, unlike
+Platform staff's `PlatformUser.status`.
+
+### `PATCH /cooperatives/:id/users/:memberId/role`
+
+Assigns or re-assigns — `memberId` must already be a member of this co-op (add them via §3 first)
+and can't be the co-op's own admin row (`memberId == :id` → 409, they already have full access).
+
+```json
+// Request
+{ "roleId": "uuid" }
+// Response: same shape as a GET .../users row
+```
+
+Sends the member a `COOP_ROLE_ASSIGNED` notification (§14). Their `permissionModules` (resolved
+from this `CoopRole`, see `AuthController.toDto`) only take effect on their **next login** — not
+retroactively on an already-issued JWT.
+
+### `DELETE /cooperatives/:id/users/:memberId`
+
+Revokes staff access — clears `coopRoleId` only. **Never deletes the member** or touches their
+savings/loans/membership; they simply go back to being a regular member. Sends a
+`COOP_ROLE_REMOVED` notification.
 
 ---
 

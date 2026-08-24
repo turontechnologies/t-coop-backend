@@ -1,8 +1,11 @@
 package com.turontechnologies.tcoop.savings;
 
+import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -12,7 +15,10 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,23 +38,28 @@ public class SavingsController {
   private final MemberRepository memberRepository;
   private final SavingsTypeRepository savingsTypeRepository;
   private final SavingsRecordRepository savingsRecordRepository;
+  private final AuditLogService auditLogService;
 
   public SavingsController(
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       SavingsTypeRepository savingsTypeRepository,
-      SavingsRecordRepository savingsRecordRepository) {
+      SavingsRecordRepository savingsRecordRepository,
+      AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.savingsTypeRepository = savingsTypeRepository;
     this.savingsRecordRepository = savingsRecordRepository;
+    this.auditLogService = auditLogService;
   }
 
-  /** The "Members Savings" breakdown table — one row per savings type, with its live total. */
+  /** The "Members Savings" breakdown table — one row per savings type, with its live total.
+   * A super admin sees any co-op's; an admin only their own (this also backs their Savings
+   * Settings tab, so it can't stay super-admin-only). */
   @GetMapping("/api/v1/cooperatives/{id}/savings/types")
   public ResponseEntity<?> types(Authentication authentication, @PathVariable String id) {
-    var forbidden = requireSuperAdmin(authentication);
-    if (forbidden != null) return forbidden;
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
@@ -67,6 +78,103 @@ public class SavingsController {
             .map(type -> SavingsTypeSummaryDto.from(type, totalsByType.getOrDefault(type.getId(), BigDecimal.ZERO)))
             .toList();
     return ResponseEntity.ok(dtos);
+  }
+
+  /** Admin creates a savings type for their own co-op (or super admin for any) — no seed data,
+   * exactly the "never auto-create savings types" rule this codebase has held to from the start. */
+  @PostMapping("/api/v1/cooperatives/{id}/savings/types")
+  public ResponseEntity<?> createType(
+      Authentication authentication,
+      @PathVariable String id,
+      @Valid @RequestBody SavingsTypeCreateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+    if (!cooperativeRepository.existsById(id)) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+
+    SavingsType type = new SavingsType(id, request.name(), request.minAmount(), request.maxAmount());
+    savingsTypeRepository.save(type);
+
+    auditLogService.log(
+        adminIdOf(authentication), access.caller().getRole(), "Savings", "Create", type.getName(), "Success", httpRequest);
+
+    return ResponseEntity.ok(SavingsTypeSummaryDto.from(type, BigDecimal.ZERO));
+  }
+
+  @PatchMapping("/api/v1/cooperatives/{id}/savings/types/{typeId}")
+  public ResponseEntity<?> updateType(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String typeId,
+      @Valid @RequestBody SavingsTypeCreateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    SavingsType type = findType(typeId, id);
+    if (type == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that savings type"));
+    }
+    type.update(request.name(), request.minAmount(), request.maxAmount());
+    savingsTypeRepository.save(type);
+
+    BigDecimal total = totalFor(id, type.getId());
+    auditLogService.log(
+        adminIdOf(authentication), access.caller().getRole(), "Savings", "Update", type.getName(), "Success", httpRequest);
+
+    return ResponseEntity.ok(SavingsTypeSummaryDto.from(type, total));
+  }
+
+  @PatchMapping("/api/v1/cooperatives/{id}/savings/types/{typeId}/status")
+  public ResponseEntity<?> updateTypeStatus(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String typeId,
+      @Valid @RequestBody SavingsTypeStatusUpdateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    SavingsType type = findType(typeId, id);
+    if (type == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that savings type"));
+    }
+    type.setStatus(request.status());
+    savingsTypeRepository.save(type);
+
+    BigDecimal total = totalFor(id, type.getId());
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Savings",
+        "Update",
+        type.getName(),
+        "Inactive".equals(request.status()) ? "Warning" : "Success",
+        httpRequest);
+
+    return ResponseEntity.ok(SavingsTypeSummaryDto.from(type, total));
+  }
+
+  private SavingsType findType(String typeId, String cooperativeId) {
+    try {
+      SavingsType type = savingsTypeRepository.findById(UUID.fromString(typeId)).orElse(null);
+      return type != null && cooperativeId.equals(type.getCooperativeId()) ? type : null;
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
+  }
+
+  private BigDecimal totalFor(String cooperativeId, UUID typeId) {
+    return savingsRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(cooperativeId).stream()
+        .filter(record -> "Success".equals(record.getStatus()) && typeId.equals(record.getSavingsTypeId()))
+        .map(SavingsRecord::getAmount)
+        .reduce(BigDecimal.ZERO, BigDecimal::add);
+  }
+
+  private String adminIdOf(Authentication authentication) {
+    return (String) authentication.getPrincipal();
   }
 
   /**
@@ -164,5 +272,25 @@ public class SavingsController {
           .body(Map.of("error", "Only a super admin can view savings oversight"));
     }
     return null;
+  }
+
+  private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  private CoopAccess requireCoopAccess(Authentication authentication, String cooperativeId) {
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return new CoopAccess(null, ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
+    }
+    if ("super_admin".equals(caller.getRole())) {
+      return new CoopAccess(caller, null);
+    }
+    if ("admin".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+      return new CoopAccess(caller, null);
+    }
+    return new CoopAccess(
+        null,
+        ResponseEntity.status(403)
+            .body(Map.of("error", "You can only manage your own co-operative's savings")));
   }
 }

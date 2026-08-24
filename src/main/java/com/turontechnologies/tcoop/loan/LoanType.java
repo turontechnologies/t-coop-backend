@@ -122,4 +122,27 @@ public class LoanType {
   public LocalDateTime getCreatedAt() {
     return createdAt;
   }
+
+  public void update(
+      String name,
+      BigDecimal eligibilityPercent,
+      int durationMonths,
+      BigDecimal maxAmount,
+      String repaymentInterval,
+      int numberOfInstallments,
+      String interestType,
+      BigDecimal interestAmount) {
+    this.name = name;
+    this.eligibilityPercent = eligibilityPercent;
+    this.durationMonths = durationMonths;
+    this.maxAmount = maxAmount;
+    this.repaymentInterval = repaymentInterval;
+    this.numberOfInstallments = numberOfInstallments;
+    this.interestType = interestType;
+    this.interestAmount = interestAmount;
+  }
+
+  public void setStatus(String status) {
+    this.status = status;
+  }
 }

@@ -72,6 +72,11 @@ public class Member {
   @Column(name = "platform_role_id")
   private UUID platformRoleId;
 
+  /** Only ever set for a "member" invited under a co-op-scoped custom role — see CoopRole. Null
+   * for every ordinary member/admin/super_admin/support account. */
+  @Column(name = "coop_role_id")
+  private UUID coopRoleId;
+
   @Column(name = "invite_token")
   private String inviteToken;
 
@@ -261,6 +266,14 @@ public class Member {
 
   public void setPlatformRoleId(UUID platformRoleId) {
     this.platformRoleId = platformRoleId;
+  }
+
+  public UUID getCoopRoleId() {
+    return coopRoleId;
+  }
+
+  public void setCoopRoleId(UUID coopRoleId) {
+    this.coopRoleId = coopRoleId;
   }
 
   public String getInviteToken() {

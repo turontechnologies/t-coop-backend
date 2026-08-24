@@ -20,10 +20,11 @@ public record MemberDto(
    * {@code coop} should be the caller's own co-operative when {@code member.role} is
    * {@code "admin"} — {@code subscriptionActive}/{@code subscriptionExpiresAt} are only ever
    * populated in that case, null otherwise, so the frontend only shows a renewal banner to the
-   * one role that can act on it. {@code permissionModules} is only ever non-null for role
-   * {@code "support"} — the frontend uses it to filter which nav items a platform-staff member
-   * sees, resolved from their assigned PlatformRole (null here just means "not a support user,"
-   * not "no permissions").
+   * one role that can act on it. {@code permissionModules} is non-null for a platform-staff
+   * member (role {@code "support"}, resolved from their PlatformRole) and for a co-op-scoped
+   * staff member (role stays {@code "member"} but {@code coopRoleId} is set, resolved from their
+   * CoopRole) — the frontend uses it to filter which nav items that member sees. Null here just
+   * means "not a role-restricted staff member," not "no permissions."
    */
   public static MemberDto from(Member member, Cooperative coop) {
     return from(member, coop, null);

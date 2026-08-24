@@ -12,7 +12,10 @@ public record LoanTypeSummaryDto(
     String name,
     BigDecimal eligibilityPercent,
     int durationMonths,
+    BigDecimal maxAmount,
+    String repaymentInterval,
     int numberOfRepayments,
+    String interestType,
     BigDecimal interestRate,
     String status,
     BigDecimal earnings) {
@@ -25,7 +28,10 @@ public record LoanTypeSummaryDto(
         type.getName(),
         type.getEligibilityPercent(),
         type.getDurationMonths(),
+        type.getMaxAmount(),
+        type.getRepaymentInterval(),
         type.getNumberOfInstallments(),
+        type.getInterestType(),
         type.getInterestAmount(),
         type.getStatus(),
         earnings);

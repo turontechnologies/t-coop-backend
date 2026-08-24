@@ -1,8 +1,11 @@
 package com.turontechnologies.tcoop.loan;
 
+import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -12,7 +15,10 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,23 +35,27 @@ public class LoanController {
   private final MemberRepository memberRepository;
   private final LoanTypeRepository loanTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
+  private final AuditLogService auditLogService;
 
   public LoanController(
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       LoanTypeRepository loanTypeRepository,
-      LoanRecordRepository loanRecordRepository) {
+      LoanRecordRepository loanRecordRepository,
+      AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.loanTypeRepository = loanTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
+    this.auditLogService = auditLogService;
   }
 
-  /** The "Loans" breakdown table — one row per loan type, with its live "Earnings on Loan". */
+  /** The "Loans" breakdown table — one row per loan type, with its live "Earnings on Loan". A
+   * super admin sees any co-op's; an admin only their own (also backs their Loan Settings tab). */
   @GetMapping("/api/v1/cooperatives/{id}/loans/types")
   public ResponseEntity<?> types(Authentication authentication, @PathVariable String id) {
-    var forbidden = requireSuperAdmin(authentication);
-    if (forbidden != null) return forbidden;
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
@@ -65,6 +75,119 @@ public class LoanController {
             .map(type -> LoanTypeSummaryDto.from(type, earningsByType.getOrDefault(type.getId(), BigDecimal.ZERO)))
             .toList();
     return ResponseEntity.ok(dtos);
+  }
+
+  @PostMapping("/api/v1/cooperatives/{id}/loans/types")
+  public ResponseEntity<?> createType(
+      Authentication authentication,
+      @PathVariable String id,
+      @Valid @RequestBody LoanTypeCreateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+    if (!cooperativeRepository.existsById(id)) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+
+    LoanType type =
+        new LoanType(
+            id,
+            request.name(),
+            request.eligibilityPercent(),
+            request.durationMonths(),
+            request.maxAmount(),
+            request.repaymentInterval(),
+            request.numberOfInstallments(),
+            request.interestType(),
+            request.interestAmount());
+    loanTypeRepository.save(type);
+
+    auditLogService.log(
+        adminIdOf(authentication), access.caller().getRole(), "Loans", "Create", type.getName(), "Success", httpRequest);
+
+    return ResponseEntity.ok(LoanTypeSummaryDto.from(type, BigDecimal.ZERO));
+  }
+
+  @PatchMapping("/api/v1/cooperatives/{id}/loans/types/{typeId}")
+  public ResponseEntity<?> updateType(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String typeId,
+      @Valid @RequestBody LoanTypeCreateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    LoanType type = findType(typeId, id);
+    if (type == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan type"));
+    }
+    type.update(
+        request.name(),
+        request.eligibilityPercent(),
+        request.durationMonths(),
+        request.maxAmount(),
+        request.repaymentInterval(),
+        request.numberOfInstallments(),
+        request.interestType(),
+        request.interestAmount());
+    loanTypeRepository.save(type);
+
+    BigDecimal earnings = earningsFor(id, type.getId());
+    auditLogService.log(
+        adminIdOf(authentication), access.caller().getRole(), "Loans", "Update", type.getName(), "Success", httpRequest);
+
+    return ResponseEntity.ok(LoanTypeSummaryDto.from(type, earnings));
+  }
+
+  @PatchMapping("/api/v1/cooperatives/{id}/loans/types/{typeId}/status")
+  public ResponseEntity<?> updateTypeStatus(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String typeId,
+      @Valid @RequestBody LoanTypeStatusUpdateRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    LoanType type = findType(typeId, id);
+    if (type == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan type"));
+    }
+    type.setStatus(request.status());
+    loanTypeRepository.save(type);
+
+    BigDecimal earnings = earningsFor(id, type.getId());
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Loans",
+        "Update",
+        type.getName(),
+        "Inactive".equals(request.status()) ? "Warning" : "Success",
+        httpRequest);
+
+    return ResponseEntity.ok(LoanTypeSummaryDto.from(type, earnings));
+  }
+
+  private LoanType findType(String typeId, String cooperativeId) {
+    try {
+      LoanType type = loanTypeRepository.findById(UUID.fromString(typeId)).orElse(null);
+      return type != null && cooperativeId.equals(type.getCooperativeId()) ? type : null;
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
+  }
+
+  private BigDecimal earningsFor(String cooperativeId, UUID typeId) {
+    return loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(cooperativeId).stream()
+        .filter(record -> !"Rejected".equals(record.getStatus()) && typeId.equals(record.getLoanTypeId()))
+        .map(record -> record.getTotalRepayment().subtract(record.getAmount()))
+        .reduce(BigDecimal.ZERO, BigDecimal::add);
+  }
+
+  private String adminIdOf(Authentication authentication) {
+    return (String) authentication.getPrincipal();
   }
 
   /** All of one co-op's loan records, newest first — the per-type drill-down table. Every
@@ -159,5 +282,25 @@ public class LoanController {
           .body(Map.of("error", "Only a super admin can view loans oversight"));
     }
     return null;
+  }
+
+  private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  private CoopAccess requireCoopAccess(Authentication authentication, String cooperativeId) {
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return new CoopAccess(null, ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
+    }
+    if ("super_admin".equals(caller.getRole())) {
+      return new CoopAccess(caller, null);
+    }
+    if ("admin".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+      return new CoopAccess(caller, null);
+    }
+    return new CoopAccess(
+        null,
+        ResponseEntity.status(403)
+            .body(Map.of("error", "You can only manage your own co-operative's loans")));
   }
 }
