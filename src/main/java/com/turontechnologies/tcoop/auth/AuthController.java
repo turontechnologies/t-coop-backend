@@ -26,7 +26,7 @@ public class AuthController {
 
   private static final String INVALID_CREDENTIALS = "Invalid membership ID or password";
   private static final String ACCOUNT_NOT_ACTIVE =
-      "Your account is not active. Please contact Turon Technologies for assistance.";
+      "Your account is not active. Please contact your admin for assistance.";
 
   private final MemberRepository memberRepository;
   private final CooperativeRepository cooperativeRepository;
