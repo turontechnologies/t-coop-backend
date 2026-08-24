@@ -55,3 +55,7 @@ t=2026-08-24T12:39:08+0100 lvl=info msg="join connections" obj=join id=681ce92d8
 t=2026-08-24T12:39:08+0100 lvl=info msg="join connections" obj=join id=384643ac7606 l=[::1]:8080 r=102.216.200.114:1937
 t=2026-08-24T12:40:38+0100 lvl=info msg="join connections" obj=join id=c7afa090b2c1 l=[::1]:8080 r=102.216.200.114:1937
 t=2026-08-24T12:40:39+0100 lvl=info msg="join connections" obj=join id=50d7c05b99ce l=[::1]:8080 r=102.216.200.114:1937
+t=2026-08-24T12:55:01+0100 lvl=info msg="join connections" obj=join id=7ada85aff8ff l=[::1]:8080 r=102.216.200.114:2144
+t=2026-08-24T12:55:01+0100 lvl=info msg="join connections" obj=join id=17f8a11c69b3 l=[::1]:8080 r=102.216.200.114:2144
+t=2026-08-24T12:57:36+0100 lvl=info msg="join connections" obj=join id=992092aceeff l=[::1]:8080 r=102.216.200.114:2144
+t=2026-08-24T12:57:36+0100 lvl=info msg="join connections" obj=join id=1cfe1264f666 l=[::1]:8080 r=102.216.200.114:2144
