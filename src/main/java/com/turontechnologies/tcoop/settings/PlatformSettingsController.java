@@ -127,6 +127,29 @@ public class PlatformSettingsController {
     return ResponseEntity.ok(IntegrationSettingsDto.from(settings));
   }
 
+  @GetMapping("/api/v1/settings/coop-id-format")
+  public ResponseEntity<?> getCoopIdFormat(Authentication authentication) {
+    var forbidden = requireSuperAdmin(authentication);
+    if (forbidden != null) return forbidden;
+    return ResponseEntity.ok(CoopIdFormatDto.from(settings()));
+  }
+
+  @PatchMapping("/api/v1/settings/coop-id-format")
+  public ResponseEntity<?> updateCoopIdFormat(
+      Authentication authentication,
+      @Valid @RequestBody CoopIdFormatUpdateRequest request,
+      HttpServletRequest httpRequest) {
+    var forbidden = requireSuperAdmin(authentication);
+    if (forbidden != null) return forbidden;
+
+    PlatformSettings settings = settings();
+    settings.updateCoopIdFormat(request.prefix().toUpperCase(), request.padding(), request.type());
+    settingsRepository.save(settings);
+
+    logSettingsUpdate(authentication, "Co-op ID Format", httpRequest);
+    return ResponseEntity.ok(CoopIdFormatDto.from(settings));
+  }
+
   private PlatformSettings settings() {
     return settingsRepository
         .findById(SINGLETON_ID)

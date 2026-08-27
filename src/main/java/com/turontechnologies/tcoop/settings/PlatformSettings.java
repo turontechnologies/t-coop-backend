@@ -86,6 +86,17 @@ public class PlatformSettings {
   @Column(name = "sms_sender_id")
   private String smsSenderId;
 
+  @Column(name = "coop_id_prefix")
+  private String coopIdPrefix;
+
+  @Column(name = "coop_id_padding")
+  private int coopIdPadding;
+
+  /** NUMERIC (0-9), ALPHA (A-Z), or ALPHANUMERIC (0-9 then A-Z) — see
+   * CooperativeController.nextGeneratedId for how this drives the base-N suffix encoding. */
+  @Column(name = "coop_id_type")
+  private String coopIdType;
+
   protected PlatformSettings() {
     // JPA
   }
@@ -184,6 +195,24 @@ public class PlatformSettings {
 
   public String getSmsSenderId() {
     return smsSenderId;
+  }
+
+  public String getCoopIdPrefix() {
+    return coopIdPrefix;
+  }
+
+  public int getCoopIdPadding() {
+    return coopIdPadding;
+  }
+
+  public String getCoopIdType() {
+    return coopIdType;
+  }
+
+  public void updateCoopIdFormat(String coopIdPrefix, int coopIdPadding, String coopIdType) {
+    this.coopIdPrefix = coopIdPrefix;
+    this.coopIdPadding = coopIdPadding;
+    this.coopIdType = coopIdType;
   }
 
   public void updateFees(

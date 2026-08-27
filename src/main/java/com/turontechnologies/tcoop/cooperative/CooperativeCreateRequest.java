@@ -19,4 +19,5 @@ public record CooperativeCreateRequest(
     @NotBlank(message = "Enter the co-operative's address") String address,
     @NotBlank(message = "Select a country") String country,
     @NotBlank(message = "Select a state") String state,
-    @NotBlank(message = "Select a city") String city) {}
+    @NotBlank(message = "Select a city") String city,
+    @NotBlank(message = "Select a currency") String currency) {}

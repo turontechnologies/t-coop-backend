@@ -10,10 +10,15 @@ import com.turontechnologies.tcoop.savings.SavingsTypeRepository;
 import com.turontechnologies.tcoop.auth.EmailDeliveryException;
 import com.turontechnologies.tcoop.auth.EmailService;
 import com.turontechnologies.tcoop.notification.NotificationService;
+import com.turontechnologies.tcoop.settings.PlatformSettings;
+import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -47,6 +52,7 @@ public class CooperativeController {
   private final SavingsTypeRepository savingsTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
   private final LoanTypeRepository loanTypeRepository;
+  private final PlatformSettingsRepository platformSettingsRepository;
   private final PasswordEncoder passwordEncoder;
   private final EmailService emailService;
   private final AuditLogService auditLogService;
@@ -59,6 +65,7 @@ public class CooperativeController {
       SavingsTypeRepository savingsTypeRepository,
       LoanRecordRepository loanRecordRepository,
       LoanTypeRepository loanTypeRepository,
+      PlatformSettingsRepository platformSettingsRepository,
       PasswordEncoder passwordEncoder,
       EmailService emailService,
       AuditLogService auditLogService,
@@ -69,6 +76,7 @@ public class CooperativeController {
     this.savingsTypeRepository = savingsTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
     this.loanTypeRepository = loanTypeRepository;
+    this.platformSettingsRepository = platformSettingsRepository;
     this.passwordEncoder = passwordEncoder;
     this.emailService = emailService;
     this.auditLogService = auditLogService;
@@ -115,6 +123,25 @@ public class CooperativeController {
             .map(CoopMemberDto::from)
             .toList();
     return ResponseEntity.ok(dtos);
+  }
+
+  /** Preview of the next auto-generated member id, per this co-op's own configured format
+   * (Settings -> Co-operative -> Member ID Format) — see {@link #nextGeneratedId} for how it's
+   * computed. Scoped to this one co-op's own members only, never another co-op's. */
+  @GetMapping("/api/v1/cooperatives/{id}/members/next-id")
+  public ResponseEntity<?> nextMemberId(Authentication authentication, @PathVariable String id) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+
+    List<String> existingIds = memberRepository.findAllByCooperativeId(id).stream().map(Member::getId).toList();
+    String nextId =
+        nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
+    return ResponseEntity.ok(Map.of("nextId", nextId));
   }
 
   /** Adds a real member with a real login — same convention as co-op admin onboarding: the
@@ -296,6 +323,82 @@ public class CooperativeController {
     return ResponseEntity.ok(CoopMemberDto.from(member));
   }
 
+  /** Preview of the next auto-generated co-op id, per the super admin's own configured format
+   * (Settings -> Payment Settings -> Fees & Charges -> Co-op ID Format). Computed from the
+   * highest existing suffix matching that prefix, not a count — so it never collides with a gap
+   * left by a manually-typed id from before this feature existed (e.g. the real "COOP-0001" /
+   * "coop-0002" mismatch this feature exists to clean up going forward). */
+  @GetMapping("/api/v1/cooperatives/next-id")
+  public ResponseEntity<?> nextId(Authentication authentication) {
+    var forbidden = requireSuperAdmin(authentication);
+    if (forbidden != null) return forbidden;
+
+    PlatformSettings settings = platformSettingsRepository.findById(1).orElse(null);
+    String prefix = settings != null && settings.getCoopIdPrefix() != null ? settings.getCoopIdPrefix() : "COOP";
+    int padding = settings != null && settings.getCoopIdPadding() > 0 ? settings.getCoopIdPadding() : 4;
+    String type = settings != null && settings.getCoopIdType() != null ? settings.getCoopIdType() : "NUMERIC";
+
+    List<String> existingIds = cooperativeRepository.findAll().stream().map(Cooperative::getId).toList();
+    String nextId = nextGeneratedId(prefix, type, padding, existingIds);
+    return ResponseEntity.ok(Map.of("nextId", nextId));
+  }
+
+  private static final String NUMERIC_DIGITS = "0123456789";
+  private static final String ALPHA_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  private static final String ALPHANUMERIC_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  private String digitAlphabetFor(String idType) {
+    return switch (idType == null ? "NUMERIC" : idType) {
+      case "ALPHA" -> ALPHA_DIGITS;
+      case "ALPHANUMERIC" -> ALPHANUMERIC_DIGITS;
+      default -> NUMERIC_DIGITS;
+    };
+  }
+
+  /** Shared by both the co-op-id and member-id generators — parses every existing id matching
+   * {@code PREFIX-<suffix>} (case-insensitive) where {@code <suffix>} is made of characters from
+   * the chosen type's digit alphabet (NUMERIC = 0-9, ALPHA = A-Z, ALPHANUMERIC = 0-9 then A-Z),
+   * decodes each as a base-N number, takes the highest value found, and re-encodes it + 1 back
+   * into that same alphabet, left-padded to {@code padding} characters wide. Switching a co-op's
+   * (or the platform's) id type after ids already exist in a different alphabet just means none
+   * of those old ids match the new pattern — generation starts fresh from 1 in the new scheme,
+   * which is the only sane behavior for a deliberate format change. */
+  private String nextGeneratedId(String prefix, String idType, int padding, List<String> existingIds) {
+    String digits = digitAlphabetFor(idType);
+    int base = digits.length();
+    Pattern pattern =
+        Pattern.compile("^" + Pattern.quote(prefix) + "-?([" + digits + "]+)$", Pattern.CASE_INSENSITIVE);
+    long max =
+        existingIds.stream()
+            .map(pattern::matcher)
+            .filter(Matcher::matches)
+            .map(matcher -> decodeBaseN(matcher.group(1).toUpperCase(), digits, base))
+            .max(Comparator.naturalOrder())
+            .orElse(0L);
+    return prefix + "-" + encodeBaseN(max + 1, digits, base, padding);
+  }
+
+  private long decodeBaseN(String value, String digits, int base) {
+    long result = 0;
+    for (char c : value.toCharArray()) {
+      result = result * base + digits.indexOf(c);
+    }
+    return result;
+  }
+
+  private String encodeBaseN(long value, String digits, int base, int padding) {
+    StringBuilder encoded = new StringBuilder();
+    long remaining = value;
+    do {
+      encoded.append(digits.charAt((int) (remaining % base)));
+      remaining /= base;
+    } while (remaining > 0);
+    while (encoded.length() < padding) {
+      encoded.append(digits.charAt(0));
+    }
+    return encoded.reverse().toString();
+  }
+
   @PostMapping("/api/v1/cooperatives")
   public ResponseEntity<?> create(
       Authentication authentication,
@@ -327,7 +430,8 @@ public class CooperativeController {
             request.address(),
             request.country(),
             request.state(),
-            request.city());
+            request.city(),
+            request.currency());
     cooperativeRepository.save(coop);
 
     // The co-op IS the admin account — it logs in with its own co-op ID, not a separately
@@ -436,6 +540,12 @@ public class CooperativeController {
     }
     if (request.withdrawalFeePercent() != null) {
       coop.setWithdrawalFeePercent(request.withdrawalFeePercent());
+    }
+    if (request.memberIdPrefix() != null && request.memberIdPadding() != null) {
+      coop.updateMemberIdFormat(
+          request.memberIdPrefix().toUpperCase(),
+          request.memberIdPadding(),
+          request.memberIdType() != null ? request.memberIdType() : coop.getMemberIdType());
     }
     cooperativeRepository.save(coop);
 
@@ -578,6 +688,9 @@ public class CooperativeController {
         coop.getBankCode(),
         coop.getAccountNumber(),
         coop.getAccountName(),
+        coop.getMemberIdPrefix(),
+        coop.getMemberIdPadding(),
+        coop.getMemberIdType(),
         memberCount,
         savingsTypeCount,
         loanTypeCount,

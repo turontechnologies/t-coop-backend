@@ -54,12 +54,27 @@ public class Cooperative {
   @Column(name = "account_name")
   private String accountName;
 
+  /** How this co-op's own admin generates the next member id (Members Directory "Add Member") —
+   * defaults match the platform-wide co-op id format's own defaults, but each co-op can set its
+   * own via Settings -> Co-operative -> Member ID Format, independent of every other co-op's. */
+  @Column(name = "member_id_prefix")
+  private String memberIdPrefix;
+
+  @Column(name = "member_id_padding")
+  private int memberIdPadding;
+
+  /** NUMERIC (0-9), ALPHA (A-Z), or ALPHANUMERIC (0-9 then A-Z) — see
+   * CooperativeController.nextGeneratedId for how this drives the base-N suffix encoding. */
+  @Column(name = "member_id_type")
+  private String memberIdType;
+
   protected Cooperative() {
     // JPA
   }
 
-  /** Creates a new co-operative — id/status/currency/subscriptionFee follow the platform's
-   * onboarding defaults (see CooperativeController), everything else comes from the request. */
+  /** Creates a new co-operative — id/status/subscriptionFee follow the platform's onboarding
+   * defaults (see CooperativeController); currency is the super admin's choice at creation time
+   * (the co-op's own admin can change it later from their own Settings). */
   public Cooperative(
       String id,
       String name,
@@ -69,7 +84,8 @@ public class Cooperative {
       String address,
       String country,
       String state,
-      String city) {
+      String city,
+      String currency) {
     this.id = id;
     this.name = name;
     this.adminName = adminName;
@@ -80,9 +96,12 @@ public class Cooperative {
     this.state = state;
     this.city = city;
     this.status = "Active";
-    this.currency = "NGN";
+    this.currency = currency;
     this.subscriptionFee = new BigDecimal("150000");
     this.withdrawalFeePercent = BigDecimal.ZERO;
+    this.memberIdPrefix = "MB";
+    this.memberIdPadding = 4;
+    this.memberIdType = "NUMERIC";
   }
 
   public String getId() {
@@ -208,5 +227,23 @@ public class Cooperative {
     this.bankCode = bankCode;
     this.accountNumber = accountNumber;
     this.accountName = accountName;
+  }
+
+  public String getMemberIdPrefix() {
+    return memberIdPrefix;
+  }
+
+  public int getMemberIdPadding() {
+    return memberIdPadding;
+  }
+
+  public String getMemberIdType() {
+    return memberIdType;
+  }
+
+  public void updateMemberIdFormat(String memberIdPrefix, int memberIdPadding, String memberIdType) {
+    this.memberIdPrefix = memberIdPrefix;
+    this.memberIdPadding = memberIdPadding;
+    this.memberIdType = memberIdType;
   }
 }
