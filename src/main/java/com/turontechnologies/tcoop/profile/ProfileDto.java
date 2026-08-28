@@ -21,7 +21,12 @@ public record ProfileDto(
     String city,
     String facebook,
     String twitter,
-    String guarantor) {
+    String guarantor,
+    String nextOfKinName,
+    String nextOfKinPhone,
+    String nextOfKinEmail,
+    String nextOfKinRelationship,
+    String nextOfKinAuthorityLevel) {
 
   public static ProfileDto from(Member member) {
     return new ProfileDto(
@@ -42,6 +47,11 @@ public record ProfileDto(
         member.getCity(),
         member.getFacebook(),
         member.getTwitter(),
-        member.getGuarantor());
+        member.getGuarantor(),
+        member.getNextOfKinName(),
+        member.getNextOfKinPhone(),
+        member.getNextOfKinEmail(),
+        member.getNextOfKinRelationship(),
+        member.getNextOfKinAuthorityLevel());
   }
 }

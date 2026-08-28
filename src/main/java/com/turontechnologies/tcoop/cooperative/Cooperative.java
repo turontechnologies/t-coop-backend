@@ -34,8 +34,13 @@ public class Cooperative {
   @Column(name = "subscription_fee")
   private BigDecimal subscriptionFee;
 
-  @Column(name = "withdrawal_fee_percent")
-  private BigDecimal withdrawalFeePercent;
+  @Column(name = "withdrawal_fee_amount")
+  private BigDecimal withdrawalFeeAmount;
+
+  /** Fixed or Percentage — decides how {@link #withdrawalFeeAmount} is applied, same shape as
+   * PlatformSettings' savings/loans charge type. */
+  @Column(name = "withdrawal_fee_type")
+  private String withdrawalFeeType;
 
   @Column(name = "subscription_cycle")
   private String subscriptionCycle;
@@ -68,6 +73,12 @@ public class Cooperative {
   @Column(name = "member_id_type")
   private String memberIdType;
 
+  /** Every new member needs at least this many guarantors (see CooperativeController.addMember —
+   * also enforces that at least one of them is an existing member of this same co-op). Each
+   * co-op's own admin sets this via Settings -> Co-operative -> Membership Rules. */
+  @Column(name = "min_guarantors")
+  private int minGuarantors;
+
   protected Cooperative() {
     // JPA
   }
@@ -98,10 +109,12 @@ public class Cooperative {
     this.status = "Active";
     this.currency = currency;
     this.subscriptionFee = new BigDecimal("150000");
-    this.withdrawalFeePercent = BigDecimal.ZERO;
+    this.withdrawalFeeAmount = BigDecimal.ZERO;
+    this.withdrawalFeeType = "Percentage";
     this.memberIdPrefix = "MB";
     this.memberIdPadding = 4;
     this.memberIdType = "NUMERIC";
+    this.minGuarantors = 2;
   }
 
   public String getId() {
@@ -152,8 +165,12 @@ public class Cooperative {
     return subscriptionFee;
   }
 
-  public BigDecimal getWithdrawalFeePercent() {
-    return withdrawalFeePercent;
+  public BigDecimal getWithdrawalFeeAmount() {
+    return withdrawalFeeAmount;
+  }
+
+  public String getWithdrawalFeeType() {
+    return withdrawalFeeType;
   }
 
   public String getSubscriptionCycle() {
@@ -219,8 +236,9 @@ public class Cooperative {
     this.currency = currency;
   }
 
-  public void setWithdrawalFeePercent(BigDecimal withdrawalFeePercent) {
-    this.withdrawalFeePercent = withdrawalFeePercent;
+  public void setWithdrawalFee(BigDecimal withdrawalFeeAmount, String withdrawalFeeType) {
+    this.withdrawalFeeAmount = withdrawalFeeAmount;
+    this.withdrawalFeeType = withdrawalFeeType;
   }
 
   public void updateBankAccount(String bankCode, String accountNumber, String accountName) {
@@ -245,5 +263,13 @@ public class Cooperative {
     this.memberIdPrefix = memberIdPrefix;
     this.memberIdPadding = memberIdPadding;
     this.memberIdType = memberIdType;
+  }
+
+  public int getMinGuarantors() {
+    return minGuarantors;
+  }
+
+  public void setMinGuarantors(int minGuarantors) {
+    this.minGuarantors = minGuarantors;
   }
 }

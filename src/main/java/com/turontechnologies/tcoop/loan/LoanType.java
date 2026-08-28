@@ -70,9 +70,19 @@ public class LoanType {
     this.repaymentInterval = repaymentInterval;
     this.numberOfInstallments = numberOfInstallments;
     this.interestType = interestType;
-    this.interestAmount = interestAmount;
+    this.interestAmount = normalizeInterestAmount(interestType, interestAmount);
     this.status = "Active";
     this.createdAt = LocalDateTime.now();
+  }
+
+  /** "NoInterest" never carries an amount regardless of what was sent — a null amount for any
+   * other type just means "not entered yet," normalized to zero rather than left null so every
+   * consumer of getInterestAmount() can keep treating it as a plain, always-present number. */
+  private static BigDecimal normalizeInterestAmount(String interestType, BigDecimal interestAmount) {
+    if ("NoInterest".equals(interestType) || interestAmount == null) {
+      return BigDecimal.ZERO;
+    }
+    return interestAmount;
   }
 
   public UUID getId() {
@@ -139,7 +149,7 @@ public class LoanType {
     this.repaymentInterval = repaymentInterval;
     this.numberOfInstallments = numberOfInstallments;
     this.interestType = interestType;
-    this.interestAmount = interestAmount;
+    this.interestAmount = normalizeInterestAmount(interestType, interestAmount);
   }
 
   public void setStatus(String status) {

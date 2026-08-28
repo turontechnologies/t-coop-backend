@@ -75,6 +75,11 @@ public class ProfileController {
         request.facebook(),
         request.twitter(),
         request.guarantor(),
+        request.nextOfKinName(),
+        request.nextOfKinPhone(),
+        request.nextOfKinEmail(),
+        request.nextOfKinRelationship(),
+        request.nextOfKinAuthorityLevel(),
         request.bankCode(),
         request.accountNumber(),
         request.accountName());

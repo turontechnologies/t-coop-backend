@@ -36,4 +36,9 @@ public record ProfileUpdateRequest(
     @NotBlank(message = "Select a city") String city,
     String facebook,
     String twitter,
-    String guarantor) {}
+    String guarantor,
+    String nextOfKinName,
+    String nextOfKinPhone,
+    String nextOfKinEmail,
+    String nextOfKinRelationship,
+    String nextOfKinAuthorityLevel) {}

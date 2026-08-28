@@ -53,7 +53,11 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
                     .requestMatchers(
-                        "/api/health", "/api/v1/auth/**", "/api/v1/platform-invites/**", "/error")
+                        "/api/health",
+                        "/api/v1/auth/**",
+                        "/api/v1/platform-invites/**",
+                        "/api/v1/guarantor-invites/**",
+                        "/error")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

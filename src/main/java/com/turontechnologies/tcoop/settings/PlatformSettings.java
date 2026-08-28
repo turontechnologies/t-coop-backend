@@ -29,8 +29,11 @@ public class PlatformSettings {
   @Column(name = "loans_charge_amount")
   private BigDecimal loansChargeAmount;
 
-  @Column(name = "withdrawal_fee_percent")
-  private BigDecimal withdrawalFeePercent;
+  @Column(name = "withdrawal_fee_amount")
+  private BigDecimal withdrawalFeeAmount;
+
+  @Column(name = "withdrawal_fee_type")
+  private String withdrawalFeeType;
 
   @Column(name = "collection_bank_code")
   private String collectionBankCode;
@@ -121,8 +124,12 @@ public class PlatformSettings {
     return loansChargeAmount;
   }
 
-  public BigDecimal getWithdrawalFeePercent() {
-    return withdrawalFeePercent;
+  public BigDecimal getWithdrawalFeeAmount() {
+    return withdrawalFeeAmount;
+  }
+
+  public String getWithdrawalFeeType() {
+    return withdrawalFeeType;
   }
 
   public String getCollectionBankCode() {
@@ -220,12 +227,14 @@ public class PlatformSettings {
       BigDecimal savingsChargeAmount,
       String loansChargeType,
       BigDecimal loansChargeAmount,
-      BigDecimal withdrawalFeePercent) {
+      BigDecimal withdrawalFeeAmount,
+      String withdrawalFeeType) {
     this.savingsChargeType = savingsChargeType;
     this.savingsChargeAmount = savingsChargeAmount;
     this.loansChargeType = loansChargeType;
     this.loansChargeAmount = loansChargeAmount;
-    this.withdrawalFeePercent = withdrawalFeePercent;
+    this.withdrawalFeeAmount = withdrawalFeeAmount;
+    this.withdrawalFeeType = withdrawalFeeType;
   }
 
   public void updateCollectionAccount(

@@ -189,6 +189,39 @@ public class EmailService {
     send(toEmail, "You're invited to T-Cooperative", body);
   }
 
+  /** Guarantor accept-workflow — the guarantor has no T-Coop account of their own, so this link
+   * is the entire interaction: it lands on a public page where they can accept or decline. */
+  public void sendGuarantorRequestEmail(
+      String toEmail,
+      String guarantorName,
+      String memberName,
+      String cooperativeName,
+      String inviteLink) {
+    String firstName = firstNameOf(guarantorName);
+
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">You're requested as a guarantor</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + escapeHtml(memberName) + " named you as a guarantor</h1>"
+            + "<p style=\"margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstName) + ", <strong>" + escapeHtml(memberName)
+            + "</strong> named you as a guarantor while joining <strong>" + escapeHtml(cooperativeName)
+            + "</strong> on T-Cooperative. Please confirm whether you accept.</p>"
+            + "<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;\">"
+            + "<tr><td align=\"center\">"
+            + "<a href=\"" + inviteLink + "\" style=\"display:inline-block;padding:12px 28px;"
+            + "background:#047857;color:#ffffff;font-size:14px;font-weight:700;"
+            + "text-decoration:none;border-radius:8px;\">Review Request</a>"
+            + "</td></tr>"
+            + "</table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "This link expires in 14 days. If you weren't expecting this, you can safely "
+            + "ignore this email.</p>";
+
+    send(toEmail, memberName + " named you as a guarantor on T-Cooperative", body);
+  }
+
   /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
   public void sendSubscriptionReceiptEmail(
       String toEmail,

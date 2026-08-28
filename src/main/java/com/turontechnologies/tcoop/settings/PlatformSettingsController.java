@@ -58,7 +58,8 @@ public class PlatformSettingsController {
         request.savingsChargeAmount(),
         request.loansChargeType(),
         request.loansChargeAmount(),
-        request.withdrawalFeePercent());
+        request.withdrawalFeeAmount(),
+        request.withdrawalFeeType());
     settingsRepository.save(settings);
 
     logSettingsUpdate(authentication, "Fees & Charges", httpRequest);

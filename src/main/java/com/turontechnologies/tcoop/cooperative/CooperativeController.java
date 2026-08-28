@@ -4,6 +4,9 @@ import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
 import com.turontechnologies.tcoop.loan.LoanTypeRepository;
 import com.turontechnologies.tcoop.member.Member;
+import com.turontechnologies.tcoop.member.MemberGuarantor;
+import com.turontechnologies.tcoop.member.MemberGuarantorDto;
+import com.turontechnologies.tcoop.member.MemberGuarantorRepository;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.savings.SavingsRecordRepository;
 import com.turontechnologies.tcoop.savings.SavingsTypeRepository;
@@ -14,13 +17,20 @@ import com.turontechnologies.tcoop.settings.PlatformSettings;
 import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -42,12 +52,15 @@ public class CooperativeController {
 
   private static final Logger log = LoggerFactory.getLogger(CooperativeController.class);
   private static final List<String> MEMBER_ROLES = List.of("admin", "member");
+  private static final int GUARANTOR_INVITE_VALID_DAYS = 14;
+  private static final SecureRandom RANDOM = new SecureRandom();
 
   /** Every co-op's admin account starts with this password; they're expected to change it. */
   private static final String DEFAULT_ADMIN_PASSWORD = "admin123";
 
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
+  private final MemberGuarantorRepository memberGuarantorRepository;
   private final SavingsRecordRepository savingsRecordRepository;
   private final SavingsTypeRepository savingsTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
@@ -58,9 +71,13 @@ public class CooperativeController {
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
 
+  @Value("${app.frontend-url}")
+  private String frontendUrl;
+
   public CooperativeController(
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
+      MemberGuarantorRepository memberGuarantorRepository,
       SavingsRecordRepository savingsRecordRepository,
       SavingsTypeRepository savingsTypeRepository,
       LoanRecordRepository loanRecordRepository,
@@ -72,6 +89,7 @@ public class CooperativeController {
       NotificationService notificationService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
+    this.memberGuarantorRepository = memberGuarantorRepository;
     this.savingsRecordRepository = savingsRecordRepository;
     this.savingsTypeRepository = savingsTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
@@ -125,6 +143,24 @@ public class CooperativeController {
     return ResponseEntity.ok(dtos);
   }
 
+  /** Status of a member's named guarantors — Pending until each one clicks through their own
+   * email invite (see GuarantorInviteController for the public accept/decline side). */
+  @GetMapping("/api/v1/cooperatives/{id}/members/{memberId}/guarantors")
+  public ResponseEntity<?> memberGuarantors(
+      Authentication authentication, @PathVariable String id, @PathVariable String memberId) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Member member = memberRepository.findById(memberId).orElse(null);
+    if (member == null || !id.equals(member.getCooperativeId())) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that member"));
+    }
+
+    List<MemberGuarantorDto> dtos =
+        memberGuarantorRepository.findAllByMemberId(memberId).stream().map(MemberGuarantorDto::from).toList();
+    return ResponseEntity.ok(dtos);
+  }
+
   /** Preview of the next auto-generated member id, per this co-op's own configured format
    * (Settings -> Co-operative -> Member ID Format) — see {@link #nextGeneratedId} for how it's
    * computed. Scoped to this one co-op's own members only, never another co-op's. */
@@ -155,7 +191,8 @@ public class CooperativeController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
-    if (!cooperativeRepository.existsById(id)) {
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
     if (memberRepository.existsById(request.membershipId())) {
@@ -166,8 +203,12 @@ public class CooperativeController {
       return ResponseEntity.status(409)
           .body(Map.of("error", "That email address is already in use by another account"));
     }
+    var guarantorError = validateGuarantors(request.guarantors(), coop, id);
+    if (guarantorError != null) return guarantorError;
 
     String role = "Admin".equals(request.role()) ? "admin" : "member";
+    String guarantorNames =
+        request.guarantors().stream().map(GuarantorInput::name).collect(Collectors.joining(", "));
     Member member =
         new Member(
             request.membershipId(),
@@ -191,7 +232,12 @@ public class CooperativeController {
         request.city(),
         request.facebook(),
         request.twitter(),
-        request.guarantor(),
+        guarantorNames,
+        request.nextOfKinName(),
+        request.nextOfKinPhone(),
+        request.nextOfKinEmail(),
+        request.nextOfKinRelationship(),
+        request.nextOfKinAuthorityLevel(),
         request.bankCode(),
         request.accountNumber(),
         request.accountName());
@@ -212,6 +258,8 @@ public class CooperativeController {
           request.email(),
           e.getMessage());
     }
+
+    sendGuarantorInvites(request.guarantors(), member, coop);
 
     auditLogService.log(
         adminIdOf(authentication),
@@ -249,6 +297,10 @@ public class CooperativeController {
     if (member == null || !id.equals(member.getCooperativeId())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that member"));
     }
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
 
     member.updateProfile(
         request.firstName(),
@@ -265,6 +317,11 @@ public class CooperativeController {
         member.getFacebook(),
         member.getTwitter(),
         request.guarantor(),
+        member.getNextOfKinName(),
+        member.getNextOfKinPhone(),
+        member.getNextOfKinEmail(),
+        member.getNextOfKinRelationship(),
+        member.getNextOfKinAuthorityLevel(),
         request.bankCode(),
         request.accountNumber(),
         request.accountName());
@@ -399,6 +456,67 @@ public class CooperativeController {
     return encoded.reverse().toString();
   }
 
+  /** Enforces the co-op's own configured guarantor rule: at least {@code minGuarantors}
+   * guarantors, and at least one of them has to be an existing member of this co-op (matched by
+   * email, more reliable than name) — the rest can be anyone; every guarantor still has to
+   * accept their own email invite regardless (see {@link #sendGuarantorInvites}). Returns null
+   * when the rule is satisfied, or the 400 response to send back otherwise. */
+  private ResponseEntity<?> validateGuarantors(
+      List<GuarantorInput> guarantors, Cooperative coop, String cooperativeId) {
+    if (guarantors.size() < coop.getMinGuarantors()) {
+      return ResponseEntity.status(400)
+          .body(Map.of("error", "This co-operative requires at least " + coop.getMinGuarantors() + " guarantors."));
+    }
+    Set<String> existingMemberEmails =
+        memberRepository.findAllByCooperativeId(cooperativeId).stream()
+            .map(existing -> existing.getEmail().trim().toLowerCase())
+            .collect(Collectors.toSet());
+    boolean hasExistingMemberGuarantor =
+        guarantors.stream().anyMatch(g -> existingMemberEmails.contains(g.email().trim().toLowerCase()));
+    if (!hasExistingMemberGuarantor) {
+      return ResponseEntity.status(400)
+          .body(
+              Map.of(
+                  "error",
+                  "At least one guarantor must be an existing member of this co-operative (matched by email)."));
+    }
+    return null;
+  }
+
+  /** Creates a Pending MemberGuarantor row per guarantor and emails each an accept/decline link —
+   * a delivery failure is logged, not fatal, same discipline as the member welcome email above. */
+  private void sendGuarantorInvites(List<GuarantorInput> guarantors, Member member, Cooperative coop) {
+    for (GuarantorInput guarantorInput : guarantors) {
+      MemberGuarantor guarantor =
+          new MemberGuarantor(
+              member.getId(), coop.getId(), guarantorInput.name(), guarantorInput.email(), guarantorInput.phone());
+      String token = generateGuarantorToken();
+      guarantor.setAcceptToken(token, LocalDateTime.now(ZoneOffset.UTC).plusDays(GUARANTOR_INVITE_VALID_DAYS));
+      memberGuarantorRepository.save(guarantor);
+
+      try {
+        emailService.sendGuarantorRequestEmail(
+            guarantorInput.email(),
+            guarantorInput.name(),
+            member.getFullName(),
+            coop.getName(),
+            frontendUrl + "/guarantor-invite/" + token);
+      } catch (EmailDeliveryException e) {
+        log.warn(
+            "Guarantor invite for member {} to {} failed: {}",
+            member.getId(),
+            guarantorInput.email(),
+            e.getMessage());
+      }
+    }
+  }
+
+  private String generateGuarantorToken() {
+    byte[] bytes = new byte[32];
+    RANDOM.nextBytes(bytes);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+  }
+
   @PostMapping("/api/v1/cooperatives")
   public ResponseEntity<?> create(
       Authentication authentication,
@@ -461,6 +579,11 @@ public class CooperativeController {
         request.country(),
         request.state(),
         request.city(),
+        null,
+        null,
+        null,
+        null,
+        null,
         null,
         null,
         null,
@@ -538,14 +661,17 @@ public class CooperativeController {
     if (request.currency() != null && !request.currency().isBlank()) {
       coop.setCurrency(request.currency());
     }
-    if (request.withdrawalFeePercent() != null) {
-      coop.setWithdrawalFeePercent(request.withdrawalFeePercent());
+    if (request.withdrawalFeeAmount() != null && request.withdrawalFeeType() != null) {
+      coop.setWithdrawalFee(request.withdrawalFeeAmount(), request.withdrawalFeeType());
     }
     if (request.memberIdPrefix() != null && request.memberIdPadding() != null) {
       coop.updateMemberIdFormat(
           request.memberIdPrefix().toUpperCase(),
           request.memberIdPadding(),
           request.memberIdType() != null ? request.memberIdType() : coop.getMemberIdType());
+    }
+    if (request.minGuarantors() != null) {
+      coop.setMinGuarantors(request.minGuarantors());
     }
     cooperativeRepository.save(coop);
 
@@ -570,6 +696,11 @@ public class CooperativeController {
           admin.getFacebook(),
           admin.getTwitter(),
           admin.getGuarantor(),
+          admin.getNextOfKinName(),
+          admin.getNextOfKinPhone(),
+          admin.getNextOfKinEmail(),
+          admin.getNextOfKinRelationship(),
+          admin.getNextOfKinAuthorityLevel(),
           admin.getBankCode(),
           admin.getAccountNumber(),
           admin.getAccountName());
@@ -584,6 +715,183 @@ public class CooperativeController {
         coop.getName(),
         "Success",
         httpRequest);
+
+    return ResponseEntity.ok(toDto(coop));
+  }
+
+  /** Hands the co-op's admin identity (the Member row whose id equals the co-op's own id) to a
+   * new person. The outgoing admin doesn't lose access — they become a regular member under a
+   * freshly generated membership id (per this co-op's own member-id format), keeping every
+   * profile field they had, just with role/password reset the same way any new member starts.
+   * The incoming admin's row keeps the same login id (the co-op id never changes) but gets fresh
+   * contact details, a reset default password, and every other personal field cleared since
+   * they're a genuinely different person — same {@link #requireCoopAccess} rule as everything
+   * else scoped to one co-op, so either a super admin or the outgoing admin themselves can do
+   * this handover. */
+  @PostMapping("/api/v1/cooperatives/{id}/transfer-admin")
+  public ResponseEntity<?> transferAdmin(
+      Authentication authentication,
+      @PathVariable String id,
+      @Valid @RequestBody TransferAdminRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+    Member outgoingAdmin = memberRepository.findById(id).orElse(null);
+    if (outgoingAdmin == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find this co-operative's admin"));
+    }
+    boolean emailTakenByAnotherMember =
+        memberRepository.findByEmail(request.newEmail()).filter(existing -> !existing.getId().equals(id)).isPresent();
+    if (emailTakenByAnotherMember) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "That email address is already in use by another account"));
+    }
+
+    // members.email carries a UNIQUE constraint — the outgoing admin's OLD email has to be freed
+    // up (by moving the admin row to the NEW email first, flushed immediately) before the new
+    // member row can be inserted holding that same OLD email, or the INSERT collides with the
+    // admin row that — at that instant — still holds it. Captured up front since updateProfile
+    // below overwrites outgoingAdmin's own fields in place.
+    String oldFirstName = outgoingAdmin.getFirstName();
+    String oldLastName = outgoingAdmin.getLastName();
+    String oldOtherName = outgoingAdmin.getOtherName();
+    String oldGender = outgoingAdmin.getGender();
+    String oldPhone = outgoingAdmin.getPhone();
+    String oldEmail = outgoingAdmin.getEmail();
+    String oldNin = outgoingAdmin.getNin();
+    String oldHomeAddress = outgoingAdmin.getHomeAddress();
+    String oldCountry = outgoingAdmin.getCountry();
+    String oldState = outgoingAdmin.getState();
+    String oldCity = outgoingAdmin.getCity();
+    String oldFacebook = outgoingAdmin.getFacebook();
+    String oldTwitter = outgoingAdmin.getTwitter();
+    String oldGuarantor = outgoingAdmin.getGuarantor();
+    String oldNextOfKinName = outgoingAdmin.getNextOfKinName();
+    String oldNextOfKinPhone = outgoingAdmin.getNextOfKinPhone();
+    String oldNextOfKinEmail = outgoingAdmin.getNextOfKinEmail();
+    String oldNextOfKinRelationship = outgoingAdmin.getNextOfKinRelationship();
+    String oldNextOfKinAuthorityLevel = outgoingAdmin.getNextOfKinAuthorityLevel();
+    String oldBankCode = outgoingAdmin.getBankCode();
+    String oldAccountNumber = outgoingAdmin.getAccountNumber();
+    String oldAccountName = outgoingAdmin.getAccountName();
+    String oldPasswordHash = outgoingAdmin.getPasswordHash();
+
+    outgoingAdmin.updateProfile(
+        request.newFirstName(),
+        request.newLastName(),
+        null,
+        null,
+        request.newPhone(),
+        request.newEmail(),
+        null,
+        null,
+        coop.getCountry(),
+        coop.getState(),
+        coop.getCity(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+    outgoingAdmin.changePassword(passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD));
+    // Flushed immediately (not just save()'d) so this UPDATE — freeing up oldEmail — actually
+    // reaches the database before the INSERT below tries to reuse it. See the comment above.
+    memberRepository.saveAndFlush(outgoingAdmin);
+
+    List<String> existingIds = memberRepository.findAllByCooperativeId(id).stream().map(Member::getId).toList();
+    String newMemberId =
+        nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
+    Member outgoingAsMember =
+        new Member(newMemberId, id, "member", oldPasswordHash, oldFirstName, oldLastName, oldEmail);
+    outgoingAsMember.updateProfile(
+        oldFirstName,
+        oldLastName,
+        oldOtherName,
+        oldGender,
+        oldPhone,
+        oldEmail,
+        oldNin,
+        oldHomeAddress,
+        oldCountry,
+        oldState,
+        oldCity,
+        oldFacebook,
+        oldTwitter,
+        oldGuarantor,
+        oldNextOfKinName,
+        oldNextOfKinPhone,
+        oldNextOfKinEmail,
+        oldNextOfKinRelationship,
+        oldNextOfKinAuthorityLevel,
+        oldBankCode,
+        oldAccountNumber,
+        oldAccountName);
+    memberRepository.save(outgoingAsMember);
+
+    coop.updateDetails(
+        coop.getName(),
+        request.newFirstName() + " " + request.newLastName(),
+        request.newEmail(),
+        request.newPhone(),
+        coop.getAddress(),
+        coop.getCountry(),
+        coop.getState(),
+        coop.getCity());
+    cooperativeRepository.save(coop);
+
+    try {
+      emailService.sendAdminWelcomeEmail(
+          request.newEmail(),
+          request.newFirstName() + " " + request.newLastName(),
+          coop.getName(),
+          coop.getId(),
+          DEFAULT_ADMIN_PASSWORD);
+    } catch (EmailDeliveryException e) {
+      log.warn(
+          "Admin transferred for {} but welcome email to {} failed: {}", coop.getId(), request.newEmail(), e.getMessage());
+    }
+    try {
+      emailService.sendMemberWelcomeEmail(
+          outgoingAsMember.getEmail(),
+          outgoingAsMember.getFullName(),
+          coop.getName(),
+          outgoingAsMember.getId(),
+          DEFAULT_ADMIN_PASSWORD);
+    } catch (EmailDeliveryException e) {
+      log.warn(
+          "Outgoing admin for {} moved to member {} but notice email failed: {}",
+          coop.getId(),
+          outgoingAsMember.getId(),
+          e.getMessage());
+    }
+
+    auditLogService.log(
+        adminIdOf(authentication),
+        access.caller().getRole(),
+        "Co-operatives",
+        "Update",
+        coop.getName() + " (admin transferred to " + request.newEmail() + ")",
+        "Warning",
+        httpRequest);
+
+    notificationService.notify(
+        outgoingAsMember.getId(),
+        "MEMBER_ADDED",
+        "You're now a member of " + coop.getName(),
+        "You've moved from co-operative admin to a regular member, with a new membership ID: "
+            + outgoingAsMember.getId() + ". Your password stays the same.",
+        "/profile");
 
     return ResponseEntity.ok(toDto(coop));
   }
@@ -684,13 +992,15 @@ public class CooperativeController {
         coop.getCity(),
         coop.getStatus(),
         coop.getCurrency(),
-        coop.getWithdrawalFeePercent(),
+        coop.getWithdrawalFeeAmount(),
+        coop.getWithdrawalFeeType(),
         coop.getBankCode(),
         coop.getAccountNumber(),
         coop.getAccountName(),
         coop.getMemberIdPrefix(),
         coop.getMemberIdPadding(),
         coop.getMemberIdType(),
+        coop.getMinGuarantors(),
         memberCount,
         savingsTypeCount,
         loanTypeCount,

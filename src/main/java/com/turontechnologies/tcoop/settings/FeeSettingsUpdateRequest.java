@@ -18,7 +18,8 @@ public record FeeSettingsUpdateRequest(
     @NotNull(message = "Enter an amount of 0 or more")
         @DecimalMin(value = "0", message = "Enter an amount of 0 or more")
         BigDecimal loansChargeAmount,
-    @NotNull(message = "Enter a percentage of 0 or more")
-        @DecimalMin(value = "0", message = "Enter a percentage of 0 or more")
-        @DecimalMax(value = "100", message = "Enter a percentage of 100 or less")
-        BigDecimal withdrawalFeePercent) {}
+    @NotNull(message = "Enter an amount of 0 or more")
+        @DecimalMin(value = "0", message = "Enter an amount of 0 or more")
+        BigDecimal withdrawalFeeAmount,
+    @Pattern(regexp = "Fixed|Percentage", message = "Select a valid withdrawal fee type")
+        String withdrawalFeeType) {}

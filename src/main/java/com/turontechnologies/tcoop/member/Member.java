@@ -52,7 +52,25 @@ public class Member {
 
   private String twitter;
 
+  /** A comma-separated list of names, not a single one — a member needs at least the co-op's own
+   * configured minimum (Cooperative.minGuarantors), enforced in CooperativeController.addMember,
+   * not a related table since a guarantor is just a name on file, nothing more structured. */
   private String guarantor;
+
+  @Column(name = "next_of_kin_name")
+  private String nextOfKinName;
+
+  @Column(name = "next_of_kin_phone")
+  private String nextOfKinPhone;
+
+  @Column(name = "next_of_kin_email")
+  private String nextOfKinEmail;
+
+  @Column(name = "next_of_kin_relationship")
+  private String nextOfKinRelationship;
+
+  @Column(name = "next_of_kin_authority_level")
+  private String nextOfKinAuthorityLevel;
 
   @Column(name = "bank_code")
   private String bankCode;
@@ -72,8 +90,11 @@ public class Member {
   @Column(name = "platform_role_id")
   private UUID platformRoleId;
 
-  /** Only ever set for a "member" invited under a co-op-scoped custom role — see CoopRole. Null
-   * for every ordinary member/admin/super_admin/support account. */
+  /**
+   * Only ever set for a "member" invited under a co-op-scoped custom role — see
+   * CoopRole. Null
+   * for every ordinary member/admin/super_admin/support account.
+   */
   @Column(name = "coop_role_id")
   private UUID coopRoleId;
 
@@ -93,7 +114,10 @@ public class Member {
     // JPA
   }
 
-  /** Creates a new member row — used when a super admin onboards a co-op's first admin. */
+  /**
+   * Creates a new member row — used when a super admin onboards a co-op's first
+   * admin.
+   */
   public Member(
       String id,
       String cooperativeId,
@@ -188,6 +212,26 @@ public class Member {
     return guarantor;
   }
 
+  public String getNextOfKinName() {
+    return nextOfKinName;
+  }
+
+  public String getNextOfKinPhone() {
+    return nextOfKinPhone;
+  }
+
+  public String getNextOfKinEmail() {
+    return nextOfKinEmail;
+  }
+
+  public String getNextOfKinRelationship() {
+    return nextOfKinRelationship;
+  }
+
+  public String getNextOfKinAuthorityLevel() {
+    return nextOfKinAuthorityLevel;
+  }
+
   public String getBankCode() {
     return bankCode;
   }
@@ -204,11 +248,18 @@ public class Member {
     return avatarUrl;
   }
 
+  public void setAvatarUrl(String avatarUrl) {
+    this.avatarUrl = avatarUrl;
+  }
+
   public String getStatus() {
     return status;
   }
 
-  /** Applies a self-service profile edit — never touches id/role/passwordHash/status. */
+  /**
+   * Applies a self-service profile edit — never touches
+   * id/role/passwordHash/status.
+   */
   public void updateProfile(
       String firstName,
       String lastName,
@@ -224,6 +275,11 @@ public class Member {
       String facebook,
       String twitter,
       String guarantor,
+      String nextOfKinName,
+      String nextOfKinPhone,
+      String nextOfKinEmail,
+      String nextOfKinRelationship,
+      String nextOfKinAuthorityLevel,
       String bankCode,
       String accountNumber,
       String accountName) {
@@ -241,6 +297,11 @@ public class Member {
     this.facebook = facebook;
     this.twitter = twitter;
     this.guarantor = guarantor;
+    this.nextOfKinName = nextOfKinName;
+    this.nextOfKinPhone = nextOfKinPhone;
+    this.nextOfKinEmail = nextOfKinEmail;
+    this.nextOfKinRelationship = nextOfKinRelationship;
+    this.nextOfKinAuthorityLevel = nextOfKinAuthorityLevel;
     this.bankCode = bankCode;
     this.accountNumber = accountNumber;
     this.accountName = accountName;
@@ -254,8 +315,11 @@ public class Member {
     this.status = status;
   }
 
-  /** Only ever called from super-admin/admin co-op-member management — a member's own
-   * self-service profile edit never touches this. */
+  /**
+   * Only ever called from super-admin/admin co-op-member management — a member's
+   * own
+   * self-service profile edit never touches this.
+   */
   public void setRole(String role) {
     this.role = role;
   }
@@ -292,9 +356,13 @@ public class Member {
     return acceptedAt;
   }
 
-  /** Creates an unaccepted platform-staff invite row — status stays "Invited" (login-blocked;
-   * see AuthController) until acceptInvite is called. passwordHash is a random, unusable
-   * placeholder the invitee could never know, not a nullable column. */
+  /**
+   * Creates an unaccepted platform-staff invite row — status stays "Invited"
+   * (login-blocked;
+   * see AuthController) until acceptInvite is called. passwordHash is a random,
+   * unusable
+   * placeholder the invitee could never know, not a nullable column.
+   */
   public static Member invitePlatformStaff(
       String id, String email, UUID platformRoleId, String placeholderPasswordHash) {
     Member member = new Member(id, null, "support", placeholderPasswordHash, "", "", email);

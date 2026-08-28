@@ -8,7 +8,8 @@ public record FeeSettingsDto(
     BigDecimal savingsChargeAmount,
     String loansChargeType,
     BigDecimal loansChargeAmount,
-    BigDecimal withdrawalFeePercent) {
+    BigDecimal withdrawalFeeAmount,
+    String withdrawalFeeType) {
 
   public static FeeSettingsDto from(PlatformSettings settings) {
     return new FeeSettingsDto(
@@ -16,6 +17,7 @@ public record FeeSettingsDto(
         settings.getSavingsChargeAmount(),
         settings.getLoansChargeType(),
         settings.getLoansChargeAmount(),
-        settings.getWithdrawalFeePercent());
+        settings.getWithdrawalFeeAmount(),
+        settings.getWithdrawalFeeType());
   }
 }
