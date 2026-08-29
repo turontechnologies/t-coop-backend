@@ -75,6 +75,53 @@ public class LoanRecord {
     // JPA
   }
 
+  public LoanRecord(
+      String cooperativeId,
+      String memberId,
+      UUID loanTypeId,
+      BigDecimal amount,
+      BigDecimal interestRate,
+      int durationMonths,
+      int numberOfRepayments,
+      BigDecimal monthlyRepayment,
+      BigDecimal totalRepayment,
+      String guarantorId,
+      String guarantorName,
+      String status) {
+    this.id = UUID.randomUUID();
+    this.cooperativeId = cooperativeId;
+    this.memberId = memberId;
+    this.loanTypeId = loanTypeId;
+    this.amount = amount;
+    this.interestRate = interestRate;
+    this.durationMonths = durationMonths;
+    this.numberOfRepayments = numberOfRepayments;
+    this.monthlyRepayment = monthlyRepayment;
+    this.totalRepayment = totalRepayment;
+    this.guarantorId = guarantorId;
+    this.guarantorName = guarantorName;
+    this.loanDate = LocalDate.now();
+    this.status = status;
+    this.repaymentsMade = 0;
+    this.createdAt = LocalDateTime.now();
+  }
+
+  public void setStatus(String status) {
+    this.status = status;
+  }
+
+  public void setGuarantorAcceptedAt(LocalDateTime guarantorAcceptedAt) {
+    this.guarantorAcceptedAt = guarantorAcceptedAt;
+  }
+
+  public void setGuarantorDocumentUrl(String guarantorDocumentUrl) {
+    this.guarantorDocumentUrl = guarantorDocumentUrl;
+  }
+
+  public void setRejectionReason(String rejectionReason) {
+    this.rejectionReason = rejectionReason;
+  }
+
   public UUID getId() {
     return id;
   }

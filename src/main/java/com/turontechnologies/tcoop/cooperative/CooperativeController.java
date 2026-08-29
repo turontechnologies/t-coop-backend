@@ -730,6 +730,12 @@ public class CooperativeController {
     if (request.withdrawalFeeAmount() != null && request.withdrawalFeeType() != null) {
       coop.setWithdrawalFee(request.withdrawalFeeAmount(), request.withdrawalFeeType());
     }
+    if (request.savingsChargeAmount() != null && request.savingsChargeType() != null) {
+      coop.setSavingsCharge(request.savingsChargeAmount(), request.savingsChargeType());
+    }
+    if (request.loansChargeAmount() != null && request.loansChargeType() != null) {
+      coop.setLoansCharge(request.loansChargeAmount(), request.loansChargeType());
+    }
     if (request.memberIdPrefix() != null && request.memberIdPadding() != null) {
       coop.updateMemberIdFormat(
           request.memberIdPrefix().toUpperCase(),
@@ -817,6 +823,14 @@ public class CooperativeController {
     Member outgoingAdmin = memberRepository.findById(id).orElse(null);
     if (outgoingAdmin == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find this co-operative's admin"));
+    }
+    if (outgoingAdmin.getEmail().equalsIgnoreCase(request.newEmail())) {
+      // Re-submitting the same email the admin already holds isn't a real handover — without
+      // this, it falls through into the swap logic below, which assumes the email is genuinely
+      // moving, and the outgoing-member INSERT collides with the admin row that never actually
+      // freed it (a raw DB constraint violation, not this clean message).
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "This person is already this co-operative's admin."));
     }
 
     Member promotedMember =
@@ -1116,7 +1130,11 @@ public class CooperativeController {
         savingsTypeCount,
         loanTypeCount,
         totalSavings,
-        totalLoans);
+        totalLoans,
+        coop.getSavingsChargeAmount(),
+        coop.getSavingsChargeType(),
+        coop.getLoansChargeAmount(),
+        coop.getLoansChargeType());
   }
 
   private String adminIdOf(Authentication authentication) {

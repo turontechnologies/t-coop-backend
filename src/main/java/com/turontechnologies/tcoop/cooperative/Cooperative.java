@@ -42,6 +42,22 @@ public class Cooperative {
   @Column(name = "withdrawal_fee_type")
   private String withdrawalFeeType;
 
+  /** This co-op's own cut of every savings deposit — combined with PlatformSettings'
+   * savingsChargeAmount at deposit time, same "co-op rate + platform rate" mechanics as
+   * {@link #withdrawalFeeAmount}. */
+  @Column(name = "savings_charge_amount")
+  private BigDecimal savingsChargeAmount;
+
+  @Column(name = "savings_charge_type")
+  private String savingsChargeType;
+
+  /** Same idea as {@link #savingsChargeAmount}, deducted from a loan's disbursement instead. */
+  @Column(name = "loans_charge_amount")
+  private BigDecimal loansChargeAmount;
+
+  @Column(name = "loans_charge_type")
+  private String loansChargeType;
+
   @Column(name = "subscription_cycle")
   private String subscriptionCycle;
 
@@ -116,6 +132,10 @@ public class Cooperative {
     this.subscriptionFee = new BigDecimal("150000");
     this.withdrawalFeeAmount = BigDecimal.ZERO;
     this.withdrawalFeeType = "Percentage";
+    this.savingsChargeAmount = BigDecimal.ZERO;
+    this.savingsChargeType = "Percentage";
+    this.loansChargeAmount = BigDecimal.ZERO;
+    this.loansChargeType = "Percentage";
     this.memberIdPrefix = "MB";
     this.memberIdPadding = 4;
     this.memberIdType = "NUMERIC";
@@ -176,6 +196,22 @@ public class Cooperative {
 
   public String getWithdrawalFeeType() {
     return withdrawalFeeType;
+  }
+
+  public BigDecimal getSavingsChargeAmount() {
+    return savingsChargeAmount;
+  }
+
+  public String getSavingsChargeType() {
+    return savingsChargeType;
+  }
+
+  public BigDecimal getLoansChargeAmount() {
+    return loansChargeAmount;
+  }
+
+  public String getLoansChargeType() {
+    return loansChargeType;
   }
 
   public String getSubscriptionCycle() {
@@ -252,6 +288,16 @@ public class Cooperative {
   public void setWithdrawalFee(BigDecimal withdrawalFeeAmount, String withdrawalFeeType) {
     this.withdrawalFeeAmount = withdrawalFeeAmount;
     this.withdrawalFeeType = withdrawalFeeType;
+  }
+
+  public void setSavingsCharge(BigDecimal savingsChargeAmount, String savingsChargeType) {
+    this.savingsChargeAmount = savingsChargeAmount;
+    this.savingsChargeType = savingsChargeType;
+  }
+
+  public void setLoansCharge(BigDecimal loansChargeAmount, String loansChargeType) {
+    this.loansChargeAmount = loansChargeAmount;
+    this.loansChargeType = loansChargeType;
   }
 
   public void updateBankAccount(String bankCode, String accountNumber, String accountName) {

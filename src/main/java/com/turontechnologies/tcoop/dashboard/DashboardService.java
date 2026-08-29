@@ -2,6 +2,7 @@ package com.turontechnologies.tcoop.dashboard;
 
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
+import com.turontechnologies.tcoop.loan.LoanEligibility;
 import com.turontechnologies.tcoop.loan.LoanRecord;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
 import com.turontechnologies.tcoop.loan.LoanType;
@@ -41,7 +42,6 @@ import org.springframework.stereotype.Service;
 public class DashboardService {
 
     private static final BigDecimal DIVIDEND_RATE = new BigDecimal("0.02");
-    private static final BigDecimal MIN_ELIGIBLE_AMOUNT = new BigDecimal("10000");
     private static final int RECENT_ACTIVITY_LIMIT = 4;
 
     private static final String[] HOURS = {
@@ -261,12 +261,7 @@ public class DashboardService {
         BigDecimal best = BigDecimal.ZERO;
         for (LoanType loanType : loanTypes) {
             if (!"Active".equals(loanType.getStatus())) continue;
-            BigDecimal uncapped = totalSavings
-                    .multiply(loanType.getEligibilityPercent())
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
-                    .max(MIN_ELIGIBLE_AMOUNT);
-            BigDecimal eligible = uncapped.min(loanType.getMaxAmount());
-            best = best.max(eligible);
+            best = best.max(LoanEligibility.forType(totalSavings, loanType));
         }
         return best;
     }

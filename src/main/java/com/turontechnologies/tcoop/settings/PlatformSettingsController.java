@@ -44,6 +44,17 @@ public class PlatformSettingsController {
     return ResponseEntity.ok(FeeSettingsDto.from(settings()));
   }
 
+  /** Unlike every other endpoint here, this one is open to any authenticated member — see
+   * {@link WithdrawalFeeDto}'s own javadoc for why. */
+  @GetMapping("/api/v1/settings/withdrawal-fee")
+  public ResponseEntity<?> getWithdrawalFee(Authentication authentication) {
+    String callerId = (String) authentication.getPrincipal();
+    if (memberRepository.findById(callerId).isEmpty()) {
+      return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    }
+    return ResponseEntity.ok(WithdrawalFeeDto.from(settings()));
+  }
+
   @PatchMapping("/api/v1/settings/fees")
   public ResponseEntity<?> updateFees(
       Authentication authentication,

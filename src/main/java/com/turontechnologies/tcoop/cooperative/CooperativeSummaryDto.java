@@ -29,4 +29,8 @@ public record CooperativeSummaryDto(
     long savingsTypeCount,
     long loanTypeCount,
     BigDecimal totalSavings,
-    BigDecimal totalLoans) {}
+    BigDecimal totalLoans,
+    BigDecimal savingsChargeAmount,
+    String savingsChargeType,
+    BigDecimal loansChargeAmount,
+    String loansChargeType) {}

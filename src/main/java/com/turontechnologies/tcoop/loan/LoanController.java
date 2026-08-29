@@ -23,10 +23,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Super-admin-only loans oversight — mirrors SavingsController exactly. Read-only: the flows
- * that actually create a loan record (guarantor acceptance, admin approval/disbursement) haven't
- * been cut over from the frontend's mock store to this backend yet — see
- * t-coop-app/documentation/loans-page.md.
+ * Loans oversight — mirrors SavingsController exactly, including its access model: a super
+ * admin sees any co-op's records, an admin/coop-staff their own co-op's, and a plain member only
+ * their own (as applicant or named guarantor). Read-only: the mutations that actually create or
+ * progress a loan record live in {@link LoanSelfServiceController}.
  */
 @RestController
 public class LoanController {
@@ -191,7 +191,9 @@ public class LoanController {
   }
 
   /** All of one co-op's loan records, newest first — the per-type drill-down table. Every
-   * filter is optional; {@code type} matches a loan type's name (not id). */
+   * filter is optional; {@code type} matches a loan type's name (not id). Every co-op-scoped
+   * caller can reach this — a plain member's {@code memberId} filter is always forced to their
+   * own id, same self-service scoping as {@link SavingsController#records}. */
   @GetMapping("/api/v1/cooperatives/{id}/loans")
   public ResponseEntity<?> records(
       Authentication authentication,
@@ -201,18 +203,23 @@ public class LoanController {
       @RequestParam(required = false) String status,
       @RequestParam(required = false) LocalDate from,
       @RequestParam(required = false) LocalDate to) {
-    var forbidden = requireSuperAdmin(authentication);
-    if (forbidden != null) return forbidden;
+    var access = requireMemberOfCoop(authentication, id);
+    if (access.error() != null) return access.error();
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
+    boolean isStaff =
+        "admin".equals(access.caller().getRole())
+            || "super_admin".equals(access.caller().getRole())
+            || access.caller().getCoopRoleId() != null;
+    String effectiveMemberId = isStaff ? memberId : access.caller().getId();
 
     Map<UUID, String> typeNames = typeNamesFor(id);
     Map<String, String> memberNames = memberNamesFor(id);
 
     List<LoanRecordDto> dtos =
         loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(id).stream()
-            .filter(record -> memberId == null || memberId.equals(record.getMemberId()))
+            .filter(record -> effectiveMemberId == null || effectiveMemberId.equals(record.getMemberId()))
             .filter(record -> type == null || type.equals(typeNames.get(record.getLoanTypeId())))
             .filter(record -> status == null || status.equals(record.getStatus()))
             .filter(record -> from == null || !record.getLoanDate().isBefore(from))
@@ -227,15 +234,29 @@ public class LoanController {
     return ResponseEntity.ok(dtos);
   }
 
-  /** A single loan's full detail. */
+  /** A single loan's full detail — a plain member (applicant or named guarantor) may only view
+   * their own. */
   @GetMapping("/api/v1/loans/{recordId}")
   public ResponseEntity<?> record(Authentication authentication, @PathVariable String recordId) {
-    var forbidden = requireSuperAdmin(authentication);
-    if (forbidden != null) return forbidden;
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    }
 
     LoanRecord record = findRecord(recordId);
     if (record == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan record"));
+    }
+    boolean isStaff =
+        "admin".equals(caller.getRole())
+            || "super_admin".equals(caller.getRole())
+            || caller.getCoopRoleId() != null;
+    boolean isParty =
+        record.getMemberId().equals(caller.getId()) || caller.getId().equals(record.getGuarantorId());
+    boolean staffOwnsCoop = isStaff && record.getCooperativeId().equals(caller.getCooperativeId());
+    if (!"super_admin".equals(caller.getRole()) && !isParty && !staffOwnsCoop) {
+      return ResponseEntity.status(403).body(Map.of("error", "You can't view that loan record"));
     }
 
     Member member = memberRepository.findById(record.getMemberId()).orElse(null);
@@ -285,6 +306,25 @@ public class LoanController {
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  /** Any member of this co-op, including a plain member listing/viewing only their own loans —
+   * see {@code records()}/{@code record()}'s own javadoc for how self-service callers get
+   * scoped down. */
+  private CoopAccess requireMemberOfCoop(Authentication authentication, String cooperativeId) {
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return new CoopAccess(null, ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
+    }
+    if ("super_admin".equals(caller.getRole())) {
+      return new CoopAccess(caller, null);
+    }
+    if (cooperativeId.equals(caller.getCooperativeId())) {
+      return new CoopAccess(caller, null);
+    }
+    return new CoopAccess(
+        null, ResponseEntity.status(403).body(Map.of("error", "You can only view your own co-operative's loans")));
+  }
 
   /** A member with a coopRoleId (assigned via CoopUserController) gets the same co-op-scoped
    * access as the admin, for their own co-op only — see CooperativeController's requireCoopAccess

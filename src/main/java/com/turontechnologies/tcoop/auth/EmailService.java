@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,6 +21,17 @@ import org.springframework.stereotype.Service;
  * one branded HTML shell (see {@link #htmlShell}) mirroring the frontend's design preview exactly
  * (t-coop-app's src/components/features/auth/otp-email-preview.tsx) so what a developer sees in
  * that preview component is what actually lands in an inbox.
+ *
+ * <p>Every method here except {@link #sendOtpEmail} is {@code @Async} (see
+ * TCoopBackendApplication's {@code @EnableAsync}) — every caller already treats delivery as
+ * best-effort (catch {@link EmailDeliveryException}, log a warning, never fail the real
+ * operation), so there's no reason the request thread should sit blocked on a slow or unreachable
+ * SMTP server before it can respond. Gmail SMTP being unreachable used to make requests like
+ * transfer-admin (two emails, ~20s each to time out) take 40+ seconds and blow past the frontend's
+ * 15s HTTP timeout — the caller now gets its response immediately, and the email either lands
+ * moments later or fails silently-but-logged in the background. {@link #sendOtpEmail} stays
+ * synchronous on purpose: forgot-password genuinely needs to tell the user delivery failed, since
+ * without the code in hand they can't take the next step.
  */
 @Service
 public class EmailService {
@@ -73,7 +85,7 @@ public class EmailService {
     send(toEmail, "Your one-time password for T-Cooperative", body);
   }
 
-  /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
+  @Async
   public void sendAdminWelcomeEmail(
       String toEmail,
       String recipientName,
@@ -119,6 +131,7 @@ public class EmailService {
         body);
   }
 
+  @Async
   public void sendMemberWelcomeEmail(
       String toEmail,
       String recipientName,
@@ -165,6 +178,7 @@ public class EmailService {
   /** Platform staff invite (Settings -> User Management) — unlike the member/admin welcome
    * emails, there's no password to show: the invitee sets their own by following the link,
    * which is what actually activates the account (login is blocked until they do). */
+  @Async
   public void sendPlatformStaffInviteEmail(
       String toEmail, String roleName, String inviteLink) {
     String body =
@@ -191,6 +205,7 @@ public class EmailService {
 
   /** Guarantor accept-workflow — the guarantor has no T-Coop account of their own, so this link
    * is the entire interaction: it lands on a public page where they can accept or decline. */
+  @Async
   public void sendGuarantorRequestEmail(
       String toEmail,
       String guarantorName,
@@ -222,7 +237,7 @@ public class EmailService {
     send(toEmail, memberName + " named you as a guarantor on T-Cooperative", body);
   }
 
-  /** Throws if the email genuinely couldn't be sent — the caller decides how to respond. */
+  @Async
   public void sendSubscriptionReceiptEmail(
       String toEmail,
       String recipientName,
@@ -260,6 +275,7 @@ public class EmailService {
   /** Notice Board — sent when a notice's medium includes "Email". Non-fatal by design at the
    * call site (NoticeController): a delivery failure shouldn't block the notice itself or its
    * in-app notification, so the caller logs and moves on rather than propagating this. */
+  @Async
   public void sendNoticeEmail(
       String toEmail, String recipientName, String noticeType, String title, String message) {
     String firstName = firstNameOf(recipientName);

@@ -31,6 +31,12 @@ public record CooperativeUpdateRequest(
     @DecimalMin(value = "0", message = "Enter an amount of 0 or more") BigDecimal withdrawalFeeAmount,
     @Pattern(regexp = "Fixed|Percentage", message = "Select a valid withdrawal fee type")
         String withdrawalFeeType,
+    @DecimalMin(value = "0", message = "Enter an amount of 0 or more") BigDecimal savingsChargeAmount,
+    @Pattern(regexp = "Fixed|Percentage", message = "Select a valid savings charge type")
+        String savingsChargeType,
+    @DecimalMin(value = "0", message = "Enter an amount of 0 or more") BigDecimal loansChargeAmount,
+    @Pattern(regexp = "Fixed|Percentage", message = "Select a valid loans charge type")
+        String loansChargeType,
     @Pattern(regexp = "^[A-Za-z0-9]{1,20}$", message = "Letters and numbers only, up to 20 characters")
         String memberIdPrefix,
     @Min(value = 1, message = "Enter at least 1 digit") @Max(value = 10, message = "Enter at most 10 digits")

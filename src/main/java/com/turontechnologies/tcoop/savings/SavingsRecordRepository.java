@@ -30,6 +30,12 @@ public interface SavingsRecordRepository extends JpaRepository<SavingsRecord, UU
           + "where s.memberId = :memberId and s.status = 'Success'")
   BigDecimal sumByMember(@Param("memberId") String memberId);
 
+  @Query(
+      "select coalesce(sum(s.amount), 0) from SavingsRecord s "
+          + "where s.memberId = :memberId and s.savingsTypeId = :savingsTypeId and s.status = 'Success'")
+  BigDecimal sumByMemberAndSavingsType(
+      @Param("memberId") String memberId, @Param("savingsTypeId") UUID savingsTypeId);
+
   @Query("select coalesce(sum(s.amount), 0) from SavingsRecord s where s.status = 'Success'")
   BigDecimal sumAll();
 

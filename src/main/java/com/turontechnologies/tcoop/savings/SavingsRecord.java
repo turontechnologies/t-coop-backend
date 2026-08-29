@@ -57,6 +57,30 @@ public class SavingsRecord {
     // JPA
   }
 
+  public SavingsRecord(
+      String cooperativeId,
+      String memberId,
+      UUID savingsTypeId,
+      BigDecimal amount,
+      BigDecimal balanceAfter,
+      String method,
+      String transactionId,
+      String status,
+      String receiptUrl) {
+    this.id = UUID.randomUUID();
+    this.cooperativeId = cooperativeId;
+    this.memberId = memberId;
+    this.savingsTypeId = savingsTypeId;
+    this.amount = amount;
+    this.balanceAfter = balanceAfter;
+    this.method = method;
+    this.transactionId = transactionId;
+    this.recordDate = LocalDate.now();
+    this.status = status;
+    this.receiptUrl = receiptUrl;
+    this.createdAt = LocalDateTime.now();
+  }
+
   public UUID getId() {
     return id;
   }
