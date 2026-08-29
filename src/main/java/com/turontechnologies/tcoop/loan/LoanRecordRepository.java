@@ -5,10 +5,16 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface LoanRecordRepository extends JpaRepository<LoanRecord, UUID> {
+
+  /** See SavingsRecordRepository.reassignMember — same reasoning, for loan history. */
+  @Modifying
+  @Query("update LoanRecord l set l.memberId = :newMemberId where l.memberId = :oldMemberId")
+  void reassignMember(@Param("oldMemberId") String oldMemberId, @Param("newMemberId") String newMemberId);
 
   @Query(
       "select coalesce(sum(l.amount), 0) from LoanRecord l "

@@ -1,5 +1,7 @@
 package com.turontechnologies.tcoop.cooperative;
 
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
 import com.turontechnologies.tcoop.loan.LoanTypeRepository;
@@ -34,12 +36,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Super-admin-only co-operative onboarding and management — list, create (which also provisions
@@ -70,6 +75,7 @@ public class CooperativeController {
   private final EmailService emailService;
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
+  private final Cloudinary cloudinary;
 
   @Value("${app.frontend-url}")
   private String frontendUrl;
@@ -86,7 +92,8 @@ public class CooperativeController {
       PasswordEncoder passwordEncoder,
       EmailService emailService,
       AuditLogService auditLogService,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      Cloudinary cloudinary) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.memberGuarantorRepository = memberGuarantorRepository;
@@ -99,6 +106,7 @@ public class CooperativeController {
     this.emailService = emailService;
     this.auditLogService = auditLogService;
     this.notificationService = notificationService;
+    this.cloudinary = cloudinary;
   }
 
   @GetMapping("/api/v1/cooperatives")
@@ -109,6 +117,64 @@ public class CooperativeController {
     List<CooperativeSummaryDto> dtos =
         cooperativeRepository.findAllByOrderByNameAsc().stream().map(this::toDto).toList();
     return ResponseEntity.ok(dtos);
+  }
+
+  /** Just the co-op's name and logo — accessible to ANY of its own members (not only admin/coop
+   * staff, unlike every other endpoint here), so even a plain member's dashboard can show which
+   * co-operative they belong to without exposing bank details or subscription info. */
+  @GetMapping("/api/v1/cooperatives/{id}/branding")
+  public ResponseEntity<?> branding(Authentication authentication, @PathVariable String id) {
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    }
+    boolean allowed = "super_admin".equals(caller.getRole()) || id.equals(caller.getCooperativeId());
+    if (!allowed) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "You can only view your own co-operative's branding"));
+    }
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+    return ResponseEntity.ok(CooperativeBrandingDto.from(coop));
+  }
+
+  /** Uploads the co-op's own logo — same access rule as addMember/update: the admin can only set
+   * their own co-op's, super admin any (typically right after onboarding a new co-op). Mirrors
+   * UploadController's avatar upload (same Cloudinary config, same response shape). */
+  @PostMapping(value = "/api/v1/cooperatives/{id}/logo", consumes = "multipart/form-data")
+  public ResponseEntity<?> uploadLogo(
+      Authentication authentication, @PathVariable String id, @RequestParam("file") MultipartFile file) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+    if (file.isEmpty()) {
+      return ResponseEntity.badRequest().body(Map.of("error", "No file provided"));
+    }
+    if (!Set.of("image/png", "image/jpeg", "image/webp").contains(file.getContentType())) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Only PNG, JPEG, or WEBP images are allowed"));
+    }
+    if (file.getSize() > 5L * 1024 * 1024) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Image must be 5MB or smaller"));
+    }
+
+    try {
+      @SuppressWarnings("unchecked")
+      Map<String, Object> result =
+          cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap("folder", "t-coop/logos"));
+      String logoUrl = (String) result.get("secure_url");
+      coop.setLogoUrl(logoUrl);
+      cooperativeRepository.save(coop);
+      return ResponseEntity.ok(Map.of("url", logoUrl));
+    } catch (Exception exception) {
+      return ResponseEntity.status(502).body(Map.of("error", "Upload to Cloudinary failed"));
+    }
   }
 
   /** Super admin can view any co-op; an admin can also view their own now — needed for their
@@ -225,7 +291,7 @@ public class CooperativeController {
         request.gender(),
         request.phone(),
         request.email(),
-        null,
+        request.nin(),
         request.homeAddress(),
         request.country(),
         request.state(),
@@ -574,7 +640,7 @@ public class CooperativeController {
         null,
         request.contactPhone(),
         request.contactEmail(),
-        null,
+        request.adminNin(),
         request.address(),
         request.country(),
         request.state(),
@@ -688,7 +754,7 @@ public class CooperativeController {
           admin.getGender(),
           request.contactPhone(),
           request.contactEmail(),
-          admin.getNin(),
+          request.adminNin() != null && !request.adminNin().isBlank() ? request.adminNin() : admin.getNin(),
           request.address(),
           request.country(),
           request.state(),
@@ -722,13 +788,20 @@ public class CooperativeController {
   /** Hands the co-op's admin identity (the Member row whose id equals the co-op's own id) to a
    * new person. The outgoing admin doesn't lose access — they become a regular member under a
    * freshly generated membership id (per this co-op's own member-id format), keeping every
-   * profile field they had, just with role/password reset the same way any new member starts.
-   * The incoming admin's row keeps the same login id (the co-op id never changes) but gets fresh
-   * contact details, a reset default password, and every other personal field cleared since
-   * they're a genuinely different person — same {@link #requireCoopAccess} rule as everything
-   * else scoped to one co-op, so either a super admin or the outgoing admin themselves can do
-   * this handover. */
+   * profile field they had (including their savings/loan history — see {@link #reassignRecords}),
+   * just with role/password reset the same way any new member starts. If the incoming admin's
+   * email already belongs to an existing member of this same co-op, that member is promoted in
+   * place instead of being blocked as a conflict: their profile and their own savings/loan
+   * history move onto the admin identity, and their old membership row is retired (kept, not
+   * deleted, so notifications/audit log/notices already pointing at it stay valid — see
+   * {@link #retireMember}). Otherwise the incoming admin's row gets fresh contact details, a
+   * reset default password, and every other personal field cleared since they're a genuinely
+   * new person. Same {@link #requireCoopAccess} rule as everything else scoped to one co-op, so
+   * either a super admin or the outgoing admin themselves can do this handover. Wrapped in one
+   * transaction — a failure partway through (an unmapped notification type once did exactly
+   * this) must not leave the admin identity half-swapped. */
   @PostMapping("/api/v1/cooperatives/{id}/transfer-admin")
+  @Transactional
   public ResponseEntity<?> transferAdmin(
       Authentication authentication,
       @PathVariable String id,
@@ -745,11 +818,20 @@ public class CooperativeController {
     if (outgoingAdmin == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find this co-operative's admin"));
     }
-    boolean emailTakenByAnotherMember =
-        memberRepository.findByEmail(request.newEmail()).filter(existing -> !existing.getId().equals(id)).isPresent();
-    if (emailTakenByAnotherMember) {
-      return ResponseEntity.status(409)
-          .body(Map.of("error", "That email address is already in use by another account"));
+
+    Member promotedMember =
+        memberRepository
+            .findByEmail(request.newEmail())
+            .filter(existing -> !existing.getId().equals(id))
+            .filter(existing -> id.equals(existing.getCooperativeId()))
+            .orElse(null);
+    if (promotedMember == null) {
+      boolean emailTakenByAnotherMember =
+          memberRepository.findByEmail(request.newEmail()).filter(existing -> !existing.getId().equals(id)).isPresent();
+      if (emailTakenByAnotherMember) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "That email address is already in use by another account"));
+      }
     }
 
     // members.email carries a UNIQUE constraint — the outgoing admin's OLD email has to be freed
@@ -781,29 +863,40 @@ public class CooperativeController {
     String oldAccountName = outgoingAdmin.getAccountName();
     String oldPasswordHash = outgoingAdmin.getPasswordHash();
 
+    // Promoting an existing member: their own profile carries over onto the admin identity (not
+    // just the bare name/phone/nin the request form collects), and their old row — which is about
+    // to hand its email to the admin row — has to be retired (email changed, status Inactive)
+    // and flushed first, or the swap below collides with it the same way the outgoing admin's own
+    // old email would.
+    String promotedMemberOldId = promotedMember == null ? null : promotedMember.getId();
+    if (promotedMember != null) {
+      retireMember(promotedMember);
+      memberRepository.saveAndFlush(promotedMember);
+    }
+
     outgoingAdmin.updateProfile(
         request.newFirstName(),
         request.newLastName(),
-        null,
-        null,
+        promotedMember == null ? null : promotedMember.getOtherName(),
+        promotedMember == null ? null : promotedMember.getGender(),
         request.newPhone(),
         request.newEmail(),
-        null,
-        null,
+        request.newNin(),
+        promotedMember == null ? null : promotedMember.getHomeAddress(),
         coop.getCountry(),
         coop.getState(),
         coop.getCity(),
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null);
+        promotedMember == null ? null : promotedMember.getFacebook(),
+        promotedMember == null ? null : promotedMember.getTwitter(),
+        promotedMember == null ? null : promotedMember.getGuarantor(),
+        promotedMember == null ? null : promotedMember.getNextOfKinName(),
+        promotedMember == null ? null : promotedMember.getNextOfKinPhone(),
+        promotedMember == null ? null : promotedMember.getNextOfKinEmail(),
+        promotedMember == null ? null : promotedMember.getNextOfKinRelationship(),
+        promotedMember == null ? null : promotedMember.getNextOfKinAuthorityLevel(),
+        promotedMember == null ? null : promotedMember.getBankCode(),
+        promotedMember == null ? null : promotedMember.getAccountNumber(),
+        promotedMember == null ? null : promotedMember.getAccountName());
     outgoingAdmin.changePassword(passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD));
     // Flushed immediately (not just save()'d) so this UPDATE — freeing up oldEmail — actually
     // reaches the database before the INSERT below tries to reuse it. See the comment above.
@@ -838,6 +931,16 @@ public class CooperativeController {
         oldAccountNumber,
         oldAccountName);
     memberRepository.save(outgoingAsMember);
+
+    // The outgoing admin's own savings/loan history — if they had any while acting as admin —
+    // follows them onto their new membership id; otherwise it would silently become the new
+    // admin's history purely because it's keyed by an id that just changed hands.
+    reassignRecords(id, outgoingAsMember.getId());
+    if (promotedMember != null) {
+      // Same reasoning in the other direction: the promoted member's own history follows them
+      // onto the admin identity they now log in as.
+      reassignRecords(promotedMemberOldId, id);
+    }
 
     coop.updateDetails(
         coop.getName(),
@@ -892,6 +995,13 @@ public class CooperativeController {
         "You've moved from co-operative admin to a regular member, with a new membership ID: "
             + outgoingAsMember.getId() + ". Your password stays the same.",
         "/profile");
+
+    notificationService.notifyAllSuperAdmins(
+        "COOPERATIVE_ADMIN_TRANSFERRED",
+        coop.getName() + " handed over its admin role",
+        oldFirstName + " " + oldLastName + " handed the admin role over to " + request.newFirstName()
+            + " " + request.newLastName() + " (" + request.newEmail() + ").",
+        "/co-operatives/" + coop.getId());
 
     return ResponseEntity.ok(toDto(coop));
   }
@@ -997,6 +1107,7 @@ public class CooperativeController {
         coop.getBankCode(),
         coop.getAccountNumber(),
         coop.getAccountName(),
+        coop.getLogoUrl(),
         coop.getMemberIdPrefix(),
         coop.getMemberIdPadding(),
         coop.getMemberIdType(),
@@ -1026,6 +1137,47 @@ public class CooperativeController {
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  /** Moves every savings/loan record from one member id to another — used only by transferAdmin,
+   * where a real person's own id changes but their financial history shouldn't stay behind
+   * attached to whoever (or whatever role) now holds the id they used to have. */
+  private void reassignRecords(String oldMemberId, String newMemberId) {
+    savingsRecordRepository.reassignMember(oldMemberId, newMemberId);
+    loanRecordRepository.reassignMember(oldMemberId, newMemberId);
+  }
+
+  /** Retires a member row being merged into the admin identity during transferAdmin — kept, not
+   * deleted, since notifications/audit log/notices already reference it by id and deleting it
+   * would either violate those foreign keys or destroy real history. Its email is swapped for a
+   * synthetic, permanently-unique placeholder (freeing the real one up for the admin row it's
+   * merging into) and its status set Inactive so it can never be logged into again — the person's
+   * one real, active login is the admin identity from here on. */
+  private void retireMember(Member member) {
+    member.updateProfile(
+        member.getFirstName(),
+        member.getLastName(),
+        member.getOtherName(),
+        member.getGender(),
+        member.getPhone(),
+        member.getId().toLowerCase() + ".retired@merged.t-coop.internal",
+        member.getNin(),
+        member.getHomeAddress(),
+        member.getCountry(),
+        member.getState(),
+        member.getCity(),
+        member.getFacebook(),
+        member.getTwitter(),
+        member.getGuarantor(),
+        member.getNextOfKinName(),
+        member.getNextOfKinPhone(),
+        member.getNextOfKinEmail(),
+        member.getNextOfKinRelationship(),
+        member.getNextOfKinAuthorityLevel(),
+        member.getBankCode(),
+        member.getAccountNumber(),
+        member.getAccountName());
+    member.setStatus("Inactive");
+  }
 
   /** Super admin can access any co-op's members; an admin only their own — never trusts the
    * path's {id} for an admin caller, always checks it against their own cooperativeId. A member

@@ -59,6 +59,11 @@ public class Cooperative {
   @Column(name = "account_name")
   private String accountName;
 
+  /** The co-op's own branding — shown on its admin/members' dashboard sidebar. Null until the
+   * admin uploads one via Settings -> Co-operative. */
+  @Column(name = "logo_url")
+  private String logoUrl;
+
   /** How this co-op's own admin generates the next member id (Members Directory "Add Member") —
    * defaults match the platform-wide co-op id format's own defaults, but each co-op can set its
    * own via Settings -> Co-operative -> Member ID Format, independent of every other co-op's. */
@@ -191,6 +196,14 @@ public class Cooperative {
 
   public String getAccountName() {
     return accountName;
+  }
+
+  public String getLogoUrl() {
+    return logoUrl;
+  }
+
+  public void setLogoUrl(String logoUrl) {
+    this.logoUrl = logoUrl;
   }
 
   /**

@@ -41,6 +41,7 @@ import org.springframework.stereotype.Service;
 public class DashboardService {
 
     private static final BigDecimal DIVIDEND_RATE = new BigDecimal("0.02");
+    private static final BigDecimal MIN_ELIGIBLE_AMOUNT = new BigDecimal("10000");
     private static final int RECENT_ACTIVITY_LIMIT = 4;
 
     private static final String[] HOURS = {
@@ -153,15 +154,19 @@ public class DashboardService {
         BigDecimal totalLoans = loanRecordRepository.sumByMember(memberId);
         BigDecimal dividends = totalSavings.multiply(DIVIDEND_RATE).setScale(2, RoundingMode.HALF_UP);
 
+        List<LoanType> loanTypes = loanTypeRepository.findAllByCooperativeId(cooperativeId);
+        BigDecimal loanEligibility = maxLoanEligibility(totalSavings, loanTypes);
+
         List<SummaryCardDto> cards = List.of(
                 new SummaryCardDto(prefix + " Savings", totalSavings),
                 new SummaryCardDto(prefix + " Loans", totalLoans),
-                new SummaryCardDto(prefix + " Dividends", dividends));
+                new SummaryCardDto(prefix + " Dividends", dividends),
+                new SummaryCardDto("Loan Eligibility", loanEligibility));
 
         Map<java.util.UUID, String> savingsTypeNames = savingsTypeRepository.findAllByCooperativeId(cooperativeId)
                 .stream()
                 .collect(Collectors.toMap(SavingsType::getId, SavingsType::getName));
-        Map<java.util.UUID, String> loanTypeNames = loanTypeRepository.findAllByCooperativeId(cooperativeId).stream()
+        Map<java.util.UUID, String> loanTypeNames = loanTypes.stream()
                 .collect(Collectors.toMap(LoanType::getId, LoanType::getName));
 
         List<SavingsRecord> savings = savingsRecordRepository.findAllByMemberIdOrderByCreatedAtDesc(
@@ -246,5 +251,23 @@ public class DashboardService {
             total += value;
         }
         return total;
+    }
+
+    /** Best case across this co-op's own active loan types — mirrors the frontend's existing
+     * computeEligibleAmount (src/lib/loans-data.ts) exactly, including its ₦10,000 floor, now
+     * computed here off the member's real total savings instead of client-side. No active loan
+     * types at all (not "no savings") is the only case that yields 0. */
+    private BigDecimal maxLoanEligibility(BigDecimal totalSavings, List<LoanType> loanTypes) {
+        BigDecimal best = BigDecimal.ZERO;
+        for (LoanType loanType : loanTypes) {
+            if (!"Active".equals(loanType.getStatus())) continue;
+            BigDecimal uncapped = totalSavings
+                    .multiply(loanType.getEligibilityPercent())
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
+                    .max(MIN_ELIGIBLE_AMOUNT);
+            BigDecimal eligible = uncapped.min(loanType.getMaxAmount());
+            best = best.max(eligible);
+        }
+        return best;
     }
 }

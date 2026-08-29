@@ -5384,3 +5384,378 @@
 2026-08-28 18:10:00     Container t-coop-backend-db-init-1 Exited 
 2026-08-28 18:10:02  ngrok is already running (PID 15708).
 2026-08-28 18:10:02  === keep-alive check complete ===
+2026-08-29 06:15:09  === keep-alive check starting ===
+2026-08-29 06:15:14  Docker Desktop not running - launching it.
+2026-08-29 06:15:29  Docker engine is ready.
+2026-08-29 06:15:35  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:15:36     Container t-coop-backend Running 
+2026-08-29 06:15:36     Container t-coop-local-db Starting 
+2026-08-29 06:15:37     Container t-coop-local-db Started 
+2026-08-29 06:15:37     Container t-coop-local-db Waiting 
+2026-08-29 06:15:47     Container t-coop-local-db Healthy 
+2026-08-29 06:15:47     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:15:48     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:15:48     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:15:48     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:15:50  ngrok is not running - starting tunnel on hamster-probiotic-compile.ngrok-free.dev.
+2026-08-29 06:15:50  === keep-alive check complete ===
+2026-08-29 06:20:54  === keep-alive check starting ===
+2026-08-29 06:21:03  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:21:03     Container t-coop-backend Running 
+2026-08-29 06:21:03     Container t-coop-local-db Running 
+2026-08-29 06:21:03     Container t-coop-local-db Waiting 
+2026-08-29 06:21:04     Container t-coop-local-db Healthy 
+2026-08-29 06:21:04     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:21:04     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:21:04     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:21:05     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:21:06  ngrok is already running (PID 28888).
+2026-08-29 06:21:06  === keep-alive check complete ===
+2026-08-29 06:24:47  === keep-alive check starting ===
+2026-08-29 06:24:50  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:24:50     Container t-coop-local-db Running 
+2026-08-29 06:24:50     Container t-coop-backend Running 
+2026-08-29 06:24:50     Container t-coop-local-db Waiting 
+2026-08-29 06:24:50     Container t-coop-local-db Healthy 
+2026-08-29 06:24:50     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:24:51     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:24:51     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:24:51     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:24:52  ngrok is already running (PID 28888).
+2026-08-29 06:24:52  === keep-alive check complete ===
+2026-08-29 06:29:47  === keep-alive check starting ===
+2026-08-29 06:29:51  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:29:51     Container t-coop-local-db Running 
+2026-08-29 06:29:51     Container t-coop-backend Recreate 
+2026-08-29 06:29:53     Container t-coop-backend Recreated 
+2026-08-29 06:29:53     Container t-coop-local-db Waiting 
+2026-08-29 06:29:53     Container t-coop-local-db Healthy 
+2026-08-29 06:29:53     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:29:53     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:29:53     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:29:54     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:29:54     Container t-coop-backend Starting 
+2026-08-29 06:29:54     Container t-coop-backend Started 
+2026-08-29 06:29:56  ngrok is already running (PID 28888).
+2026-08-29 06:29:56  === keep-alive check complete ===
+2026-08-29 06:34:47  === keep-alive check starting ===
+2026-08-29 06:34:51  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:34:51     Container t-coop-local-db Running 
+2026-08-29 06:34:51     Container t-coop-backend Running 
+2026-08-29 06:34:51     Container t-coop-local-db Waiting 
+2026-08-29 06:34:51     Container t-coop-local-db Healthy 
+2026-08-29 06:34:51     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:34:52     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:34:52     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:34:52     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:34:53  ngrok is already running (PID 28888).
+2026-08-29 06:34:53  === keep-alive check complete ===
+2026-08-29 06:39:47  === keep-alive check starting ===
+2026-08-29 06:39:49  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:39:50     Container t-coop-backend Running 
+2026-08-29 06:39:50     Container t-coop-local-db Running 
+2026-08-29 06:39:50     Container t-coop-local-db Waiting 
+2026-08-29 06:39:50     Container t-coop-local-db Healthy 
+2026-08-29 06:39:50     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:39:50     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:39:50     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:39:51     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:39:51  ngrok is already running (PID 28888).
+2026-08-29 06:39:51  === keep-alive check complete ===
+2026-08-29 06:44:50  === keep-alive check starting ===
+2026-08-29 06:45:16  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:45:18     Container t-coop-backend Running 
+2026-08-29 06:45:18     Container t-coop-local-db Running 
+2026-08-29 06:45:18     Container t-coop-local-db Waiting 
+2026-08-29 06:45:18     Container t-coop-local-db Healthy 
+2026-08-29 06:45:18     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:45:20     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:45:20     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:45:20     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:45:22  ngrok is already running (PID 28888).
+2026-08-29 06:45:22  === keep-alive check complete ===
+2026-08-29 06:49:47  === keep-alive check starting ===
+2026-08-29 06:49:52  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:49:53     Container t-coop-local-db Running 
+2026-08-29 06:49:53     Container t-coop-backend Running 
+2026-08-29 06:49:53     Container t-coop-local-db Waiting 
+2026-08-29 06:49:53     Container t-coop-local-db Healthy 
+2026-08-29 06:49:53     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:49:54     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:49:54     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:49:54     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:49:55  ngrok is already running (PID 28888).
+2026-08-29 06:49:55  === keep-alive check complete ===
+2026-08-29 06:54:47  === keep-alive check starting ===
+2026-08-29 06:54:55  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:54:56     Container t-coop-backend Running 
+2026-08-29 06:54:56     Container t-coop-local-db Running 
+2026-08-29 06:54:56     Container t-coop-local-db Waiting 
+2026-08-29 06:54:56     Container t-coop-local-db Healthy 
+2026-08-29 06:54:56     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:54:57     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:54:57     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:54:57     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:54:58  ngrok is already running (PID 28888).
+2026-08-29 06:54:58  === keep-alive check complete ===
+2026-08-29 06:59:47  === keep-alive check starting ===
+2026-08-29 06:59:51  Ensuring containers are up (docker compose up -d).
+2026-08-29 06:59:51     Container t-coop-local-db Running 
+2026-08-29 06:59:51     Container t-coop-backend Running 
+2026-08-29 06:59:51     Container t-coop-local-db Waiting 
+2026-08-29 06:59:52     Container t-coop-local-db Healthy 
+2026-08-29 06:59:52     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 06:59:53     Container t-coop-backend-db-init-1 Started 
+2026-08-29 06:59:53     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 06:59:54     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 06:59:54  ngrok is already running (PID 28888).
+2026-08-29 06:59:54  === keep-alive check complete ===
+2026-08-29 07:04:47  === keep-alive check starting ===
+2026-08-29 07:04:50  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:04:51     Container t-coop-local-db Running 
+2026-08-29 07:04:51     Container t-coop-backend Running 
+2026-08-29 07:04:51     Container t-coop-local-db Waiting 
+2026-08-29 07:04:51     Container t-coop-local-db Healthy 
+2026-08-29 07:04:51     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:04:51     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:04:51     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:04:52     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:04:52  ngrok is already running (PID 28888).
+2026-08-29 07:04:52  === keep-alive check complete ===
+2026-08-29 07:09:48  === keep-alive check starting ===
+2026-08-29 07:09:52  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:09:52     Container t-coop-local-db Running 
+2026-08-29 07:09:52     Container t-coop-backend Recreate 
+2026-08-29 07:09:53     Container t-coop-backend Recreated 
+2026-08-29 07:09:53     Container t-coop-local-db Waiting 
+2026-08-29 07:09:53     Container t-coop-local-db Healthy 
+2026-08-29 07:09:53     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:09:53     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:09:53     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:09:54     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:09:54     Container t-coop-backend Starting 
+2026-08-29 07:09:54     Container t-coop-backend Started 
+2026-08-29 07:09:55  ngrok is already running (PID 28888).
+2026-08-29 07:09:55  === keep-alive check complete ===
+2026-08-29 07:14:47  === keep-alive check starting ===
+2026-08-29 07:14:55  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:14:56     Container t-coop-local-db Running 
+2026-08-29 07:14:56     Container t-coop-backend Running 
+2026-08-29 07:14:56     Container t-coop-local-db Waiting 
+2026-08-29 07:14:56     Container t-coop-local-db Healthy 
+2026-08-29 07:14:56     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:14:56     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:14:56     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:14:57     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:14:58  ngrok is already running (PID 28888).
+2026-08-29 07:14:58  === keep-alive check complete ===
+2026-08-29 07:19:47  === keep-alive check starting ===
+2026-08-29 07:19:51  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:19:51     Container t-coop-local-db Running 
+2026-08-29 07:19:51     Container t-coop-backend Running 
+2026-08-29 07:19:51     Container t-coop-local-db Waiting 
+2026-08-29 07:19:52     Container t-coop-local-db Healthy 
+2026-08-29 07:19:52     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:19:52     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:19:52     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:19:53     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:19:53  ngrok is already running (PID 28888).
+2026-08-29 07:19:53  === keep-alive check complete ===
+2026-08-29 07:24:47  === keep-alive check starting ===
+2026-08-29 07:24:50  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:24:50     Container t-coop-backend Running 
+2026-08-29 07:24:50     Container t-coop-local-db Running 
+2026-08-29 07:24:50     Container t-coop-local-db Waiting 
+2026-08-29 07:24:51     Container t-coop-local-db Healthy 
+2026-08-29 07:24:51     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:24:51     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:24:51     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:24:52     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:24:52  ngrok is already running (PID 28888).
+2026-08-29 07:24:52  === keep-alive check complete ===
+2026-08-29 07:29:47  === keep-alive check starting ===
+2026-08-29 07:29:50  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:29:50     Container t-coop-local-db Running 
+2026-08-29 07:29:50     Container t-coop-backend Recreate 
+2026-08-29 07:29:51     Container t-coop-backend Recreated 
+2026-08-29 07:29:51     Container t-coop-local-db Waiting 
+2026-08-29 07:29:52     Container t-coop-local-db Healthy 
+2026-08-29 07:29:52     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:29:52     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:29:52     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:29:52     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:29:52     Container t-coop-backend Starting 
+2026-08-29 07:29:52     Container t-coop-backend Started 
+2026-08-29 07:29:53  ngrok is already running (PID 28888).
+2026-08-29 07:29:53  === keep-alive check complete ===
+2026-08-29 07:34:47  === keep-alive check starting ===
+2026-08-29 07:34:49  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:34:49     Container t-coop-backend Running 
+2026-08-29 07:34:49     Container t-coop-local-db Running 
+2026-08-29 07:34:49     Container t-coop-local-db Waiting 
+2026-08-29 07:34:49     Container t-coop-local-db Healthy 
+2026-08-29 07:34:49     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:34:50     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:34:50     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:34:50     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:34:51  ngrok is already running (PID 28888).
+2026-08-29 07:34:51  === keep-alive check complete ===
+2026-08-29 07:39:48  === keep-alive check starting ===
+2026-08-29 07:39:54  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:39:55     Container t-coop-local-db Running 
+2026-08-29 07:39:55     Container t-coop-backend Running 
+2026-08-29 07:39:55     Container t-coop-local-db Waiting 
+2026-08-29 07:39:55     Container t-coop-local-db Healthy 
+2026-08-29 07:39:55     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:39:56     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:39:56     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:39:56     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:39:56  ngrok is already running (PID 28888).
+2026-08-29 07:39:57  === keep-alive check complete ===
+2026-08-29 07:44:53  === keep-alive check starting ===
+2026-08-29 07:44:56  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:44:56     Container t-coop-backend Running 
+2026-08-29 07:44:56     Container t-coop-local-db Running 
+2026-08-29 07:44:56     Container t-coop-local-db Waiting 
+2026-08-29 07:44:57     Container t-coop-local-db Healthy 
+2026-08-29 07:44:57     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:44:57     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:44:57     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:44:58     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:44:58  ngrok is already running (PID 28888).
+2026-08-29 07:44:58  === keep-alive check complete ===
+2026-08-29 07:50:05  === keep-alive check starting ===
+2026-08-29 07:50:08  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:50:09     Container t-coop-backend Running 
+2026-08-29 07:50:09     Container t-coop-local-db Running 
+2026-08-29 07:50:09     Container t-coop-local-db Waiting 
+2026-08-29 07:50:10     Container t-coop-local-db Healthy 
+2026-08-29 07:50:10     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 07:50:10     Container t-coop-backend-db-init-1 Started 
+2026-08-29 07:50:10     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 07:50:10     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 07:50:11  ngrok is already running (PID 28888).
+2026-08-29 07:50:11  === keep-alive check complete ===
+2026-08-29 07:59:54  === keep-alive check starting ===
+2026-08-29 07:59:59  Ensuring containers are up (docker compose up -d).
+2026-08-29 07:59:59     Container t-coop-backend Running 
+2026-08-29 07:59:59     Container t-coop-local-db Running 
+2026-08-29 07:59:59     Container t-coop-local-db Waiting 
+2026-08-29 08:00:00     Container t-coop-local-db Healthy 
+2026-08-29 08:00:00     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 08:00:00     Container t-coop-backend-db-init-1 Started 
+2026-08-29 08:00:00     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 08:00:01     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 08:00:01  ngrok is already running (PID 28888).
+2026-08-29 08:00:01  === keep-alive check complete ===
+2026-08-29 08:04:58  === keep-alive check starting ===
+2026-08-29 08:05:02  Ensuring containers are up (docker compose up -d).
+2026-08-29 08:05:02     Container t-coop-backend Running 
+2026-08-29 08:05:02     Container t-coop-local-db Running 
+2026-08-29 08:05:02     Container t-coop-local-db Waiting 
+2026-08-29 08:05:03     Container t-coop-local-db Healthy 
+2026-08-29 08:05:03     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 08:05:03     Container t-coop-backend-db-init-1 Started 
+2026-08-29 08:05:03     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 08:05:04     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 08:05:04  ngrok is already running (PID 28888).
+2026-08-29 08:05:04  === keep-alive check complete ===
+2026-08-29 08:09:54  === keep-alive check starting ===
+2026-08-29 08:09:57  Ensuring containers are up (docker compose up -d).
+2026-08-29 08:09:57     Container t-coop-local-db Running 
+2026-08-29 08:09:57     Container t-coop-backend Running 
+2026-08-29 08:09:57     Container t-coop-local-db Waiting 
+2026-08-29 08:09:58     Container t-coop-local-db Healthy 
+2026-08-29 08:09:58     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 08:09:58     Container t-coop-backend-db-init-1 Started 
+2026-08-29 08:09:58     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 08:09:58     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 08:09:59  ngrok is already running (PID 28888).
+2026-08-29 08:09:59  === keep-alive check complete ===
+2026-08-29 08:14:53  === keep-alive check starting ===
+2026-08-29 08:14:57  Ensuring containers are up (docker compose up -d).
+2026-08-29 08:14:57     Container t-coop-local-db Running 
+2026-08-29 08:14:58     Container t-coop-backend Running 
+2026-08-29 08:14:58     Container t-coop-local-db Waiting 
+2026-08-29 08:14:58     Container t-coop-local-db Healthy 
+2026-08-29 08:14:58     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 08:14:58     Container t-coop-backend-db-init-1 Started 
+2026-08-29 08:14:58     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 08:14:59     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 08:15:00  ngrok is already running (PID 28888).
+2026-08-29 08:15:00  === keep-alive check complete ===
+2026-08-29 13:04:18  === keep-alive check starting ===
+2026-08-29 13:04:33  Docker Desktop not running - launching it.
+2026-08-29 13:05:04  Docker engine is ready.
+2026-08-29 13:05:10  Ensuring containers are up (docker compose up -d).
+2026-08-29 13:05:13     Container t-coop-backend Running 
+2026-08-29 13:05:13     Container t-coop-local-db Starting 
+2026-08-29 13:05:14     Container t-coop-local-db Started 
+2026-08-29 13:05:14     Container t-coop-local-db Waiting 
+2026-08-29 13:05:28     Container t-coop-local-db Healthy 
+2026-08-29 13:05:28     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 13:05:29     Container t-coop-backend-db-init-1 Started 
+2026-08-29 13:05:29     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 13:05:29     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 13:05:31  ngrok is not running - starting tunnel on hamster-probiotic-compile.ngrok-free.dev.
+2026-08-29 13:05:32  === keep-alive check complete ===
+2026-08-29 13:19:54  === keep-alive check starting ===
+2026-08-29 13:19:58  Ensuring containers are up (docker compose up -d).
+2026-08-29 13:19:58     Container t-coop-local-db Running 
+2026-08-29 13:19:58     Container t-coop-backend Running 
+2026-08-29 13:19:58     Container t-coop-local-db Waiting 
+2026-08-29 13:19:59     Container t-coop-local-db Healthy 
+2026-08-29 13:19:59     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 13:19:59     Container t-coop-backend-db-init-1 Started 
+2026-08-29 13:19:59     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 13:20:00     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 13:20:00  ngrok is already running (PID 39648).
+2026-08-29 13:20:00  === keep-alive check complete ===
+2026-08-29 13:29:52  === keep-alive check starting ===
+2026-08-29 13:29:56  Ensuring containers are up (docker compose up -d).
+2026-08-29 13:29:56     Container t-coop-backend Running 
+2026-08-29 13:29:56     Container t-coop-local-db Running 
+2026-08-29 13:29:56     Container t-coop-local-db Waiting 
+2026-08-29 13:29:57     Container t-coop-local-db Healthy 
+2026-08-29 13:29:57     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 13:29:57     Container t-coop-backend-db-init-1 Started 
+2026-08-29 13:29:57     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 13:29:57     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 13:29:58  ngrok is already running (PID 39648).
+2026-08-29 13:29:58  === keep-alive check complete ===
+2026-08-29 13:34:52  === keep-alive check starting ===
+2026-08-29 13:34:53  Ensuring containers are up (docker compose up -d).
+2026-08-29 13:34:54     Container t-coop-backend Running 
+2026-08-29 13:34:54     Container t-coop-local-db Running 
+2026-08-29 13:34:54     Container t-coop-local-db Waiting 
+2026-08-29 13:34:54     Container t-coop-local-db Healthy 
+2026-08-29 13:34:54     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 13:34:55     Container t-coop-backend-db-init-1 Started 
+2026-08-29 13:34:55     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 13:34:55     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 13:34:56  ngrok is already running (PID 39648).
+2026-08-29 13:34:56  === keep-alive check complete ===
+2026-08-29 13:39:55  === keep-alive check starting ===
+2026-08-29 13:40:04  Ensuring containers are up (docker compose up -d).
+2026-08-29 13:40:04     Container t-coop-backend Running 
+2026-08-29 13:40:04     Container t-coop-local-db Running 
+2026-08-29 13:40:04     Container t-coop-local-db Waiting 
+2026-08-29 13:40:05     Container t-coop-local-db Healthy 
+2026-08-29 13:40:05     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 13:40:05     Container t-coop-backend-db-init-1 Started 
+2026-08-29 13:40:05     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 13:40:06     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 13:40:07  ngrok is already running (PID 39648).
+2026-08-29 13:40:07  === keep-alive check complete ===
+2026-08-29 13:44:56  === keep-alive check starting ===
+2026-08-29 13:45:01  Ensuring containers are up (docker compose up -d).
+2026-08-29 13:45:02     Container t-coop-local-db Running 
+2026-08-29 13:45:02     Container t-coop-backend Running 
+2026-08-29 13:45:02     Container t-coop-local-db Waiting 
+2026-08-29 13:45:02     Container t-coop-local-db Healthy 
+2026-08-29 13:45:02     Container t-coop-backend-db-init-1 Starting 
+2026-08-29 13:45:03     Container t-coop-backend-db-init-1 Started 
+2026-08-29 13:45:03     Container t-coop-backend-db-init-1 Waiting 
+2026-08-29 13:45:03     Container t-coop-backend-db-init-1 Exited 
+2026-08-29 13:45:04  ngrok is already running (PID 39648).
+2026-08-29 13:45:04  === keep-alive check complete ===

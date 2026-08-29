@@ -12,6 +12,7 @@ public record MemberDto(
     String email,
     String role,
     String avatarUrl,
+    String cooperativeId,
     Boolean subscriptionActive,
     LocalDate subscriptionExpiresAt,
     List<String> permissionModules) {
@@ -38,6 +39,7 @@ public record MemberDto(
         member.getEmail(),
         member.getRole(),
         member.getAvatarUrl(),
+        member.getCooperativeId(),
         isAdmin ? coop.hasActiveSubscription() : null,
         isAdmin ? coop.getSubscriptionExpiresAt() : null,
         permissionModules);

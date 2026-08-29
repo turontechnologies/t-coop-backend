@@ -20,6 +20,7 @@ public record CooperativeSummaryDto(
     String bankCode,
     String accountNumber,
     String accountName,
+    String logoUrl,
     String memberIdPrefix,
     int memberIdPadding,
     String memberIdType,

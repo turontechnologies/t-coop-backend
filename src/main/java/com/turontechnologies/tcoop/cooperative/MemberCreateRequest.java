@@ -20,6 +20,7 @@ public record MemberCreateRequest(
     String gender,
     @NotBlank(message = "Enter a phone number") String phone,
     @NotBlank(message = "Enter an email address") String email,
+    @Pattern(regexp = "^$|^\\d{11}$", message = "NIN must be 11 digits") String nin,
     String homeAddress,
     @NotBlank(message = "Select a country") String country,
     String state,

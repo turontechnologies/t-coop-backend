@@ -10,6 +10,7 @@ public record CooperativeCreateRequest(
     @NotBlank(message = "Enter the co-operative name") String coopName,
     @NotBlank(message = "Enter the admin's first name") String adminFirstName,
     @NotBlank(message = "Enter the admin's last name") String adminLastName,
+    @Pattern(regexp = "^$|^\\d{11}$", message = "NIN must be 11 digits") String adminNin,
     @NotBlank(message = "This is not a valid email")
         @Email(message = "This is not a valid email")
         String contactEmail,

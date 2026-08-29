@@ -27,6 +27,10 @@ public class AuthController {
   private static final String INVALID_CREDENTIALS = "Invalid membership ID or password";
   private static final String ACCOUNT_NOT_ACTIVE =
       "Your account is not active. Please contact your admin for assistance.";
+  private static final String COOPERATIVE_DISABLED =
+      "Your co-operative has been disabled. Please contact Turon Technologies for assistance.";
+  private static final String SUBSCRIPTION_EXPIRED =
+      "Your co-operative's subscription has expired. Please contact your co-operative admin.";
 
   private final MemberRepository memberRepository;
   private final CooperativeRepository cooperativeRepository;
@@ -93,6 +97,22 @@ public class AuthController {
     // otherwise an anonymous guesser could use this response to fish for disabled accounts.
     if (!"Active".equals(member.getStatus())) {
       return ResponseEntity.status(403).body(Map.of("error", ACCOUNT_NOT_ACTIVE));
+    }
+
+    // A disabled co-op locks out everyone tied to it, admin included — there's no "pay your way
+    // back in" for that, only a super admin re-activating it. A lapsed *subscription* only locks
+    // out members: the admin still needs to log in to see the renewal banner and pay via
+    // /subscriptions/me (see SubscriptionGateFilter, which exempts exactly that path for them).
+    if (member.getCooperativeId() != null) {
+      Cooperative coop = cooperativeRepository.findById(member.getCooperativeId()).orElse(null);
+      if (coop != null) {
+        if ("Disabled".equals(coop.getStatus())) {
+          return ResponseEntity.status(403).body(Map.of("error", COOPERATIVE_DISABLED));
+        }
+        if (!"admin".equals(member.getRole()) && !coop.hasActiveSubscription()) {
+          return ResponseEntity.status(403).body(Map.of("error", SUBSCRIPTION_EXPIRED));
+        }
+      }
     }
 
     String token = jwtService.generateToken(member);

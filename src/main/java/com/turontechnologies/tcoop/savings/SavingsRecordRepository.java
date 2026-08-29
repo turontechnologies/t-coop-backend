@@ -5,10 +5,20 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface SavingsRecordRepository extends JpaRepository<SavingsRecord, UUID> {
+
+  /** CooperativeController.transferAdmin uses this both ways — moving the outgoing admin's own
+   * savings history onto their new membership id, and (when the incoming admin was already a
+   * member) moving theirs onto the co-op's admin id — so a person's savings history follows them
+   * through either side of a handover instead of staying stranded under an id someone else now
+   * holds. */
+  @Modifying
+  @Query("update SavingsRecord s set s.memberId = :newMemberId where s.memberId = :oldMemberId")
+  void reassignMember(@Param("oldMemberId") String oldMemberId, @Param("newMemberId") String newMemberId);
 
   @Query(
       "select coalesce(sum(s.amount), 0) from SavingsRecord s "
