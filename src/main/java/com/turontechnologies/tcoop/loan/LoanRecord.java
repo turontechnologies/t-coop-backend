@@ -110,6 +110,10 @@ public class LoanRecord {
     this.status = status;
   }
 
+  public void incrementRepaymentsMade() {
+    this.repaymentsMade++;
+  }
+
   public void setGuarantorAcceptedAt(LocalDateTime guarantorAcceptedAt) {
     this.guarantorAcceptedAt = guarantorAcceptedAt;
   }
