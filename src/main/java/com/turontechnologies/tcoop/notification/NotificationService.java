@@ -19,14 +19,20 @@ public class NotificationService {
 
   private final NotificationRepository notificationRepository;
   private final MemberRepository memberRepository;
+  private final PushNotificationService pushNotificationService;
 
   public NotificationService(
-      NotificationRepository notificationRepository, MemberRepository memberRepository) {
+      NotificationRepository notificationRepository,
+      MemberRepository memberRepository,
+      PushNotificationService pushNotificationService) {
     this.notificationRepository = notificationRepository;
     this.memberRepository = memberRepository;
+    this.pushNotificationService = pushNotificationService;
   }
 
-  /** The general-purpose entry point every convenience method below funnels through. */
+  /** The general-purpose entry point every convenience method below funnels through — every
+   * notification in the app becomes both an in-app row here AND, best-effort, a real device push
+   * to whichever devices this member has registered. */
   public void notify(
       String recipientMemberId,
       String type,
@@ -38,6 +44,7 @@ public class NotificationService {
     notificationRepository.save(
         new Notification(
             recipientMemberId, type, title, message, link, relatedCooperativeId, relatedExpiresAt));
+    pushNotificationService.sendToMember(recipientMemberId, title, message, link);
   }
 
   public void notify(String recipientMemberId, String type, String title, String message, String link) {

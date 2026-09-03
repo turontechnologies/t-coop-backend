@@ -192,10 +192,13 @@ public class CooperativeController {
   }
 
   /** Listing is read-only for super admin's co-op oversight; an admin can also list (and add
-   * to, below) their own co-op's roster — this is the real backend behind Members Directory. */
+   * to, below) their own co-op's roster — this is the real backend behind Members Directory. A
+   * plain member of the co-op can also read it (read-only) — needed so the loan-application
+   * guarantor picker has a roster to select from; {@link #requireCoopAccess} stays staff-only for
+   * every other (mostly mutating) endpoint in this controller. */
   @GetMapping("/api/v1/cooperatives/{id}/members")
   public ResponseEntity<?> members(Authentication authentication, @PathVariable String id) {
-    var access = requireCoopAccess(authentication, id);
+    var access = requireCoopReadAccess(authentication, id);
     if (access.error() != null) return access.error();
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
@@ -1220,5 +1223,21 @@ public class CooperativeController {
         null,
         ResponseEntity.status(403)
             .body(Map.of("error", "You can only manage your own co-operative's members")));
+  }
+
+  /** Same as {@link #requireCoopAccess} but also lets a plain member read their own co-op's data
+   * — used only by read-only endpoints (the members list) where that's safe, never by a mutating
+   * one. */
+  private CoopAccess requireCoopReadAccess(Authentication authentication, String cooperativeId) {
+    var staffAccess = requireCoopAccess(authentication, cooperativeId);
+    if (staffAccess.error() == null) {
+      return staffAccess;
+    }
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller != null && "member".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+      return new CoopAccess(caller, null);
+    }
+    return staffAccess;
   }
 }

@@ -6,3 +6,32 @@ t=2026-09-02T19:11:04+0100 lvl=info msg="starting web service" obj=web addr=127.
 t=2026-09-02T19:11:06+0100 lvl=info msg="client session established" obj=tunnels.session
 t=2026-09-02T19:11:06+0100 lvl=info msg="tunnel session started" obj=tunnels.session
 t=2026-09-02T19:11:07+0100 lvl=info msg="started tunnel" obj=tunnels name=command_line addr=http://localhost:8080 url=https://hamster-probiotic-compile.ngrok-free.dev
+t=2026-09-02T21:31:15+0100 lvl=eror msg="session closed, starting reconnect loop" obj=tunnels.session id=22f666e3e6d9 err="read EOF from remote peer" obj=csess
+t=2026-09-02T21:31:15+0100 lvl=eror msg="heartbeat timeout, terminating session" obj=tunnels.session obj=csess id=c936e64529ae clientid=4a0a405147892d71c38190c47210eeba
+t=2026-09-02T21:31:33+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: EOF"
+t=2026-09-02T21:31:44+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 3.125.234.140:443: i/o timeout"
+t=2026-09-02T21:32:03+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: failed to fetch CRL. errors encountered: timed out fetching CRL"
+t=2026-09-02T21:32:15+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 3.125.234.140:443: i/o timeout"
+t=2026-09-02T21:32:29+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp: lookup connect.ngrok-agent.com: i/o timeout"
+t=2026-09-02T21:32:51+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: EOF"
+t=2026-09-02T21:33:27+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: failed to fetch CRL. errors encountered: timed out fetching CRL"
+t=2026-09-02T21:34:07+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 52.28.187.147:443: i/o timeout"
+t=2026-09-02T21:34:39+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 3.125.92.105:443: i/o timeout"
+t=2026-09-02T23:02:31+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp: lookup connect.ngrok-agent.com: no such host"
+t=2026-09-03T02:37:59+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp: lookup connect.ngrok-agent.com: i/o timeout"
+t=2026-09-03T02:38:03+0100 lvl=warn msg="failed to check for update" obj=updater err="Post \"https://update.ngrok-agent.com/check\": dial tcp: lookup update.ngrok-agent.com: no such host"
+t=2026-09-03T02:39:57+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp: lookup connect.ngrok-agent.com: no such host"
+t=2026-09-03T02:40:27+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp: lookup connect.ngrok-agent.com: no such host"
+t=2026-09-03T02:41:04+0100 lvl=info msg="client session established" obj=tunnels.session
+t=2026-09-03T02:41:04+0100 lvl=info msg="tunnel session started" obj=tunnels.session
+t=2026-09-03T03:41:38+0100 lvl=eror msg="session closed, starting reconnect loop" obj=tunnels.session obj=csess id=22f666e3e6d9 err="read EOF from remote peer"
+t=2026-09-03T03:41:42+0100 lvl=eror msg="heartbeat timeout, terminating session" obj=tunnels.session obj=csess id=6427a402f691 clientid=4a0a405147892d71c38190c47210eeba
+t=2026-09-03T03:41:51+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: EOF"
+t=2026-09-03T03:42:01+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 3.123.177.80:443: i/o timeout"
+t=2026-09-03T03:42:13+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: EOF"
+t=2026-09-03T03:42:25+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 3.123.177.80:443: i/o timeout"
+t=2026-09-03T03:42:39+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp 3.123.177.80:443: i/o timeout"
+t=2026-09-03T03:42:47+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to dial ngrok server with address \"connect.ngrok-agent.com:443\": dial tcp: lookup connect.ngrok-agent.com: no such host"
+t=2026-09-03T03:43:19+0100 lvl=eror msg="failed to reconnect session" obj=tunnels.session err="failed to send authentication request: EOF"
+t=2026-09-03T03:44:04+0100 lvl=info msg="client session established" obj=tunnels.session
+t=2026-09-03T03:44:04+0100 lvl=info msg="tunnel session started" obj=tunnels.session
