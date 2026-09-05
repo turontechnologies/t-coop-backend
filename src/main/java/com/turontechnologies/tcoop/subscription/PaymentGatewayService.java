@@ -14,7 +14,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import javax.crypto.Mac;
@@ -254,6 +256,87 @@ public class PaymentGatewayService {
     } catch (Exception e) {
       log.error("OPay verify failed for reference {}: {}", reference, e.getMessage());
       return new VerificationResult(false, null, "Couldn't verify that payment. Please try again.");
+    }
+  }
+
+  public record BankOption(String name, String code) {}
+
+  public record BankListResult(boolean success, List<BankOption> banks, String message) {}
+
+  /** Real, transfer-capable Nigerian banks via Paystack — same list web's bank picker uses,
+   * fetched with the platform's own configured Paystack key rather than a static env var, so any
+   * platform that's set up Paystack in Settings -> Integrations gets it, mobile included. */
+  public BankListResult listPaystackBanks(String secretKey) {
+    if (secretKey == null || secretKey.isBlank()) {
+      return new BankListResult(false, null, "Paystack isn't configured for this platform.");
+    }
+    try {
+      HttpRequest request =
+          HttpRequest.newBuilder()
+              .uri(URI.create("https://api.paystack.co/bank?currency=NGN"))
+              .header("Authorization", "Bearer " + secretKey)
+              .timeout(Duration.ofSeconds(15))
+              .GET()
+              .build();
+      HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      JsonNode body = objectMapper.readTree(response.body());
+
+      if (response.statusCode() != 200 || !body.path("status").asBoolean(false)) {
+        return new BankListResult(false, null, body.path("message").asText("Couldn't load the bank list."));
+      }
+
+      List<BankOption> banks = new ArrayList<>();
+      for (JsonNode bank : body.path("data")) {
+        if (bank.path("active").asBoolean(false)
+            && !bank.path("is_deleted").asBoolean(true)
+            && bank.path("supports_transfer").asBoolean(false)) {
+          banks.add(new BankOption(bank.path("name").asText(), bank.path("code").asText()));
+        }
+      }
+      banks.sort((a, b) -> a.name().compareToIgnoreCase(b.name()));
+      return new BankListResult(true, banks, null);
+    } catch (HttpTimeoutException e) {
+      return new BankListResult(false, null, "Couldn't reach Paystack right now. Please try again.");
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+      log.error("Paystack bank list failed: {}", e.getMessage());
+      return new BankListResult(false, null, "Couldn't load the bank list. Please try again.");
+    }
+  }
+
+  public record BankResolveResult(boolean success, String accountName, String message) {}
+
+  /** Resolves a real Nigerian bank account number to its registered name via Paystack. */
+  public BankResolveResult resolvePaystackBankAccount(String accountNumber, String bankCode, String secretKey) {
+    if (secretKey == null || secretKey.isBlank()) {
+      return new BankResolveResult(false, null, "Paystack isn't configured for this platform.");
+    }
+    try {
+      String url =
+          "https://api.paystack.co/bank/resolve?account_number="
+              + java.net.URLEncoder.encode(accountNumber, StandardCharsets.UTF_8)
+              + "&bank_code="
+              + java.net.URLEncoder.encode(bankCode, StandardCharsets.UTF_8);
+      HttpRequest request =
+          HttpRequest.newBuilder()
+              .uri(URI.create(url))
+              .header("Authorization", "Bearer " + secretKey)
+              .timeout(Duration.ofSeconds(15))
+              .GET()
+              .build();
+      HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+      JsonNode body = objectMapper.readTree(response.body());
+
+      if (response.statusCode() != 200 || !body.path("status").asBoolean(false)) {
+        return new BankResolveResult(false, null, body.path("message").asText("Couldn't verify that account number."));
+      }
+      return new BankResolveResult(true, body.path("data").path("account_name").asText(), null);
+    } catch (HttpTimeoutException e) {
+      return new BankResolveResult(false, null, "Couldn't reach Paystack right now. Please try again.");
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+      log.error("Paystack bank resolve failed: {}", e.getMessage());
+      return new BankResolveResult(false, null, "Couldn't verify that account number. Please try again.");
     }
   }
 

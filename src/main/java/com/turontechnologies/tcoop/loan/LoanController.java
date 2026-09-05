@@ -213,13 +213,21 @@ public class LoanController {
             || "super_admin".equals(access.caller().getRole())
             || access.caller().getCoopRoleId() != null;
     String effectiveMemberId = isStaff ? memberId : access.caller().getId();
+    // A plain member also needs to see loans where they're only the named guarantor, not the
+    // applicant — otherwise a guarantor has no way to find the request they were notified about.
+    // Only applies to a member's own unfiltered view, not a staff member's memberId query param.
+    String guarantorMatchId = isStaff ? null : access.caller().getId();
 
     Map<UUID, String> typeNames = typeNamesFor(id);
     Map<String, String> memberNames = memberNamesFor(id);
 
     List<LoanRecordDto> dtos =
         loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(id).stream()
-            .filter(record -> effectiveMemberId == null || effectiveMemberId.equals(record.getMemberId()))
+            .filter(
+                record ->
+                    effectiveMemberId == null
+                        || effectiveMemberId.equals(record.getMemberId())
+                        || (guarantorMatchId != null && guarantorMatchId.equals(record.getGuarantorId())))
             .filter(record -> type == null || type.equals(typeNames.get(record.getLoanTypeId())))
             .filter(record -> status == null || status.equals(record.getStatus()))
             .filter(record -> from == null || !record.getLoanDate().isBefore(from))

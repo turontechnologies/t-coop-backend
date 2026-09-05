@@ -151,7 +151,7 @@ public class LoanSelfServiceController {
         "LOAN_GUARANTOR_REQUEST",
         "You've been asked to guarantee a loan",
         member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
-        "/loans");
+        "/loans/" + record.getId());
 
     auditLogService.log(
         member.getId(), member.getRole(), "Loans", "Create", type.getName(), "Success", httpRequest);
@@ -196,7 +196,7 @@ public class LoanSelfServiceController {
           "LOAN_GUARANTOR_ACCEPTED",
           "A loan is ready for your decision",
           (applicant != null ? applicant.getFullName() : "A member") + "'s " + typeName + " loan was accepted by its guarantor and now awaits your approval.",
-          "/loans");
+          "/loans/" + record.getId());
     } else {
       String reason = "Guarantor declined to stand for this loan.";
       record.setStatus("Rejected");
@@ -207,7 +207,7 @@ public class LoanSelfServiceController {
             "LOAN_GUARANTOR_REJECTED",
             "Your loan application was declined",
             "Your guarantor declined to stand for your " + typeName + " loan application.",
-            "/loans");
+            "/loans/" + record.getId());
       }
     }
     loanRecordRepository.save(record);
@@ -260,7 +260,7 @@ public class LoanSelfServiceController {
           "Approved".equals(request.decision())
               ? "Your " + typeName + " loan of " + record.getAmount() + " has been disbursed."
               : "Your " + typeName + " loan application was declined.",
-          "/loans");
+          "/loans/" + record.getId());
     }
 
     auditLogService.log(
