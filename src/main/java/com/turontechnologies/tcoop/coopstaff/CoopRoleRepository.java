@@ -12,4 +12,6 @@ public interface CoopRoleRepository extends JpaRepository<CoopRole, UUID> {
   Optional<CoopRole> findByCooperativeIdAndNameIgnoreCase(String cooperativeId, String name);
 
   boolean existsByCooperativeIdAndNameIgnoreCase(String cooperativeId, String name);
+
+  Optional<CoopRole> findByCooperativeIdAndOffice(String cooperativeId, String office);
 }

@@ -71,6 +71,21 @@ public class LoanRecord {
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
+  /** The Paystack transfer that paid this loan out, set when the Secretary's approval disburses
+   * it (see LoanSelfServiceController.decide). */
+  @Column(name = "disbursement_reference")
+  private String disbursementReference;
+
+  @Column(name = "disbursement_status")
+  private String disbursementStatus;
+
+  /** Principal minus loan charges — what actually reached the member's account. */
+  @Column(name = "disbursed_amount")
+  private BigDecimal disbursedAmount;
+
+  @Column(name = "disbursed_at")
+  private LocalDateTime disbursedAt;
+
   protected LoanRecord() {
     // JPA
   }
@@ -124,6 +139,29 @@ public class LoanRecord {
 
   public void setRejectionReason(String rejectionReason) {
     this.rejectionReason = rejectionReason;
+  }
+
+  public void markDisbursed(String reference, String transferStatus, BigDecimal netAmount) {
+    this.disbursementReference = reference;
+    this.disbursementStatus = transferStatus;
+    this.disbursedAmount = netAmount;
+    this.disbursedAt = LocalDateTime.now();
+  }
+
+  public String getDisbursementReference() {
+    return disbursementReference;
+  }
+
+  public String getDisbursementStatus() {
+    return disbursementStatus;
+  }
+
+  public BigDecimal getDisbursedAmount() {
+    return disbursedAmount;
+  }
+
+  public LocalDateTime getDisbursedAt() {
+    return disbursedAt;
   }
 
   public UUID getId() {

@@ -90,6 +90,21 @@ public class CoopUserController {
     if (role == null || !"Active".equals(role.getStatus())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that role"));
     }
+    if (role.getOffice() != null) {
+      Member currentHolder =
+          memberRepository.findAllByCoopRoleId(role.getId()).stream()
+              .filter(holder -> !holder.getId().equals(member.getId()))
+              .findFirst()
+              .orElse(null);
+      if (currentHolder != null) {
+        return ResponseEntity.status(409)
+            .body(
+                Map.of(
+                    "error",
+                    currentHolder.getFullName() + " is already the " + role.getName()
+                        + ". Remove them from the role first."));
+      }
+    }
 
     boolean wasAlreadyStaff = member.getCoopRoleId() != null;
     member.setCoopRoleId(role.getId());

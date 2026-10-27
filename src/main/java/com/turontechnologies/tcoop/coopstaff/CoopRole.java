@@ -30,6 +30,10 @@ public class CoopRole {
 
   private String status;
 
+  /** Set only on the four fixed officer roles (see {@link CoopOffices}) — null for every role an
+   * admin creates themselves. An office role can't be renamed, deactivated, or deleted. */
+  private String office;
+
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
@@ -38,12 +42,21 @@ public class CoopRole {
   }
 
   public CoopRole(String cooperativeId, String name, List<String> permissions) {
+    this(cooperativeId, name, permissions, null);
+  }
+
+  public CoopRole(String cooperativeId, String name, List<String> permissions, String office) {
     this.id = UUID.randomUUID();
     this.cooperativeId = cooperativeId;
     this.name = name;
     this.permissions = String.join(",", permissions);
     this.status = "Active";
+    this.office = office;
     this.createdAt = LocalDateTime.now();
+  }
+
+  public String getOffice() {
+    return office;
   }
 
   public UUID getId() {

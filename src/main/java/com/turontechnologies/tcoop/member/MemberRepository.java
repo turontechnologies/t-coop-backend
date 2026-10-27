@@ -24,4 +24,6 @@ public interface MemberRepository extends JpaRepository<Member, String> {
   List<Member> findAllByCooperativeIdAndCoopRoleIdIsNotNullOrderByFirstNameAsc(String cooperativeId);
 
   long countByCoopRoleId(UUID coopRoleId);
+
+  List<Member> findAllByCoopRoleId(UUID coopRoleId);
 }

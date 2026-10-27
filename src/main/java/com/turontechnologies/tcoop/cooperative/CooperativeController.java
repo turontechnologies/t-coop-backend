@@ -3,10 +3,10 @@ package com.turontechnologies.tcoop.cooperative;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopstaff.CoopOffices;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
 import com.turontechnologies.tcoop.loan.LoanTypeRepository;
 import com.turontechnologies.tcoop.member.Member;
-import com.turontechnologies.tcoop.member.MemberGuarantor;
 import com.turontechnologies.tcoop.member.MemberGuarantorDto;
 import com.turontechnologies.tcoop.member.MemberGuarantorRepository;
 import com.turontechnologies.tcoop.member.MemberRepository;
@@ -19,20 +19,14 @@ import com.turontechnologies.tcoop.settings.PlatformSettings;
 import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import java.security.SecureRandom;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -57,8 +51,6 @@ public class CooperativeController {
 
   private static final Logger log = LoggerFactory.getLogger(CooperativeController.class);
   private static final List<String> MEMBER_ROLES = List.of("admin", "member");
-  private static final int GUARANTOR_INVITE_VALID_DAYS = 14;
-  private static final SecureRandom RANDOM = new SecureRandom();
 
   /** Every co-op's admin account starts with this password; they're expected to change it. */
   private static final String DEFAULT_ADMIN_PASSWORD = "admin123";
@@ -75,10 +67,8 @@ public class CooperativeController {
   private final EmailService emailService;
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
+  private final CoopOffices coopOffices;
   private final Cloudinary cloudinary;
-
-  @Value("${app.frontend-url}")
-  private String frontendUrl;
 
   public CooperativeController(
       CooperativeRepository cooperativeRepository,
@@ -93,6 +83,7 @@ public class CooperativeController {
       EmailService emailService,
       AuditLogService auditLogService,
       NotificationService notificationService,
+      CoopOffices coopOffices,
       Cloudinary cloudinary) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
@@ -106,6 +97,7 @@ public class CooperativeController {
     this.emailService = emailService;
     this.auditLogService = auditLogService;
     this.notificationService = notificationService;
+    this.coopOffices = coopOffices;
     this.cloudinary = cloudinary;
   }
 
@@ -272,12 +264,8 @@ public class CooperativeController {
       return ResponseEntity.status(409)
           .body(Map.of("error", "That email address is already in use by another account"));
     }
-    var guarantorError = validateGuarantors(request.guarantors(), coop, id);
-    if (guarantorError != null) return guarantorError;
 
     String role = "Admin".equals(request.role()) ? "admin" : "member";
-    String guarantorNames =
-        request.guarantors().stream().map(GuarantorInput::name).collect(Collectors.joining(", "));
     Member member =
         new Member(
             request.membershipId(),
@@ -301,7 +289,7 @@ public class CooperativeController {
         request.city(),
         request.facebook(),
         request.twitter(),
-        guarantorNames,
+        null,
         request.nextOfKinName(),
         request.nextOfKinPhone(),
         request.nextOfKinEmail(),
@@ -327,8 +315,6 @@ public class CooperativeController {
           request.email(),
           e.getMessage());
     }
-
-    sendGuarantorInvites(request.guarantors(), member, coop);
 
     auditLogService.log(
         adminIdOf(authentication),
@@ -525,67 +511,6 @@ public class CooperativeController {
     return encoded.reverse().toString();
   }
 
-  /** Enforces the co-op's own configured guarantor rule: at least {@code minGuarantors}
-   * guarantors, and at least one of them has to be an existing member of this co-op (matched by
-   * email, more reliable than name) — the rest can be anyone; every guarantor still has to
-   * accept their own email invite regardless (see {@link #sendGuarantorInvites}). Returns null
-   * when the rule is satisfied, or the 400 response to send back otherwise. */
-  private ResponseEntity<?> validateGuarantors(
-      List<GuarantorInput> guarantors, Cooperative coop, String cooperativeId) {
-    if (guarantors.size() < coop.getMinGuarantors()) {
-      return ResponseEntity.status(400)
-          .body(Map.of("error", "This co-operative requires at least " + coop.getMinGuarantors() + " guarantors."));
-    }
-    Set<String> existingMemberEmails =
-        memberRepository.findAllByCooperativeId(cooperativeId).stream()
-            .map(existing -> existing.getEmail().trim().toLowerCase())
-            .collect(Collectors.toSet());
-    boolean hasExistingMemberGuarantor =
-        guarantors.stream().anyMatch(g -> existingMemberEmails.contains(g.email().trim().toLowerCase()));
-    if (!hasExistingMemberGuarantor) {
-      return ResponseEntity.status(400)
-          .body(
-              Map.of(
-                  "error",
-                  "At least one guarantor must be an existing member of this co-operative (matched by email)."));
-    }
-    return null;
-  }
-
-  /** Creates a Pending MemberGuarantor row per guarantor and emails each an accept/decline link —
-   * a delivery failure is logged, not fatal, same discipline as the member welcome email above. */
-  private void sendGuarantorInvites(List<GuarantorInput> guarantors, Member member, Cooperative coop) {
-    for (GuarantorInput guarantorInput : guarantors) {
-      MemberGuarantor guarantor =
-          new MemberGuarantor(
-              member.getId(), coop.getId(), guarantorInput.name(), guarantorInput.email(), guarantorInput.phone());
-      String token = generateGuarantorToken();
-      guarantor.setAcceptToken(token, LocalDateTime.now(ZoneOffset.UTC).plusDays(GUARANTOR_INVITE_VALID_DAYS));
-      memberGuarantorRepository.save(guarantor);
-
-      try {
-        emailService.sendGuarantorRequestEmail(
-            guarantorInput.email(),
-            guarantorInput.name(),
-            member.getFullName(),
-            coop.getName(),
-            frontendUrl + "/guarantor-invite/" + token);
-      } catch (EmailDeliveryException e) {
-        log.warn(
-            "Guarantor invite for member {} to {} failed: {}",
-            member.getId(),
-            guarantorInput.email(),
-            e.getMessage());
-      }
-    }
-  }
-
-  private String generateGuarantorToken() {
-    byte[] bytes = new byte[32];
-    RANDOM.nextBytes(bytes);
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-  }
-
   @PostMapping("/api/v1/cooperatives")
   public ResponseEntity<?> create(
       Authentication authentication,
@@ -620,6 +545,7 @@ public class CooperativeController {
             request.city(),
             request.currency());
     cooperativeRepository.save(coop);
+    coopOffices.ensureOfficeRoles(coop.getId());
 
     // The co-op IS the admin account — it logs in with its own co-op ID, not a separately
     // generated one, so that "how many co-ops has super admin onboarded" and "how many admins

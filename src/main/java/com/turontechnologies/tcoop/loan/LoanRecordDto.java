@@ -2,11 +2,13 @@ package com.turontechnologies.tcoop.loan;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * One loan record — GET /api/v1/cooperatives/{id}/loans (list) and GET /api/v1/loans/{recordId}
  * (single). Matches the frontend's CoopLoanRecord shape in coop-data.ts, including the joined-in
- * memberName/loanType display strings.
+ * memberName/loanType display strings. The disbursement fields stay null until the Secretary's
+ * approval pays the loan out.
  */
 public record LoanRecordDto(
     String id,
@@ -25,7 +27,10 @@ public record LoanRecordDto(
     String status,
     int repaymentsMade,
     String guarantorDocumentUrl,
-    String rejectionReason) {
+    String rejectionReason,
+    BigDecimal disbursedAmount,
+    String disbursementReference,
+    LocalDateTime disbursedAt) {
 
   public static LoanRecordDto from(LoanRecord record, String memberName, String loanTypeName) {
     return new LoanRecordDto(
@@ -45,6 +50,9 @@ public record LoanRecordDto(
         record.getStatus(),
         record.getRepaymentsMade(),
         record.getGuarantorDocumentUrl(),
-        record.getRejectionReason());
+        record.getRejectionReason(),
+        record.getDisbursedAmount(),
+        record.getDisbursementReference(),
+        record.getDisbursedAt());
   }
 }

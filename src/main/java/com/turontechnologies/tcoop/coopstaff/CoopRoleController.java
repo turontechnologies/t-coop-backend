@@ -90,6 +90,10 @@ public class CoopRoleController {
     if (role == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that role"));
     }
+    if (role.getOffice() != null && !role.getName().equals(request.name())) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "Officer roles can't be renamed — you can still change their permissions."));
+    }
     boolean nameTakenByAnother =
         coopRoleRepository
             .findByCooperativeIdAndNameIgnoreCase(id, request.name())
@@ -120,6 +124,10 @@ public class CoopRoleController {
     if (role == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that role"));
     }
+    if (role.getOffice() != null && !"Active".equals(request.status())) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "Officer roles can't be deactivated — they're part of loan approvals."));
+    }
     role.setStatus(request.status());
     coopRoleRepository.save(role);
 
@@ -139,6 +147,10 @@ public class CoopRoleController {
     CoopRole role = findRole(roleId, id);
     if (role == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that role"));
+    }
+    if (role.getOffice() != null) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "Officer roles can't be deleted — they're part of loan approvals."));
     }
     if (memberRepository.countByCoopRoleId(role.getId()) > 0) {
       return ResponseEntity.status(409)
