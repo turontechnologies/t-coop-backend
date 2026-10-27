@@ -235,9 +235,17 @@ public class CooperativeController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
 
-    List<String> existingIds = memberRepository.findAllByCooperativeId(id).stream().map(Member::getId).toList();
+    List<String> existingIds =
+        new java.util.ArrayList<>(memberRepository.findAllByCooperativeId(id).stream().map(Member::getId).toList());
     String nextId =
         nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
+    // Membership IDs are unique across the whole platform, but each co-op numbers its own — two
+    // co-ops on the same prefix (the default "MB") would otherwise be handed the same ID.
+    while (memberRepository.existsById(nextId)) {
+      existingIds.add(nextId);
+      nextId =
+          nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
+    }
     return ResponseEntity.ok(Map.of("nextId", nextId));
   }
 

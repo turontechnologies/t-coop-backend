@@ -299,10 +299,43 @@ endpoints exist.
 "Earnings on Loan" aggregated live as `sum(totalRepayment - amount)` over every non-`Rejected`
 loan of that type — real interest collected, not an illustrative flat rate like Savings' 2%),
 `GET /cooperatives/:id/loans` (per-co-op record list, filterable by `memberId`/`type`/`status`/
-`from`/`to`), `GET /loans/:recordId` (single-record detail). Same read-only-by-design scoping as
-Savings: the flows that actually *create* a loan record (a member's request, guarantor
-acceptance, admin approval/disbursement) haven't been cut over from the frontend's mock store —
-see `t-coop-app/documentation/loans-page.md`.
+`from`/`to`), `GET /loans/:recordId` (single-record detail). These are read-only; creating and
+moving a loan is the application/approval flow below.
+
+## Loan application and approval flow
+
+`LoanSelfServiceController`. Officers are the co-op's four fixed office roles (`CoopOffices`);
+a vacant office — or one held by the loan's borrower/guarantor — is covered by the co-op admin.
+The President can reject (not approve) at any open stage.
+
+```mermaid
+sequenceDiagram
+    participant M as Member
+    participant G as Guarantor
+    participant O as VP / Treasurer / Secretary
+    participant B as Backend
+    participant P as Paystack
+    M->>B: POST /cooperatives/:id/loans {loanTypeId, amount, guarantorMemberId}
+    B-->>M: Awaiting Guarantor (guarantor must be an active member of the same co-op)
+    G->>B: PATCH .../guarantor-response {Accepted}
+    B-->>O: notify Vice President (or admin if vacant) — Awaiting Vice President
+    O->>B: PATCH .../decision {Approved} as Vice President
+    B-->>O: notify Treasurer — Awaiting Treasurer
+    O->>B: PATCH .../decision {Approved} as Treasurer
+    B-->>O: notify Secretary — Awaiting Secretary
+    O->>B: PATCH .../decision {Approved} as Secretary
+    B->>P: POST /transferrecipient, POST /transfer (reference loan-<id>, net of charges)
+    alt Paystack accepts (success/pending)
+        B->>B: status Active, disbursement recorded, approval saved
+        B-->>M: LOAN_DISBURSED notification
+    else Paystack refuses / no bank account / no Paystack set up
+        B-->>O: error — loan stays Awaiting Secretary, retry is safe
+    end
+```
+
+Payout comes from the co-op's own Paystack (`cooperative_payment_gateways`) if connected, else
+the platform's. `GET .../approvals` tells the client who holds each office, the decisions so
+far, and whether the caller can approve/reject right now.
 
 **Loan types ARE seeded, unlike savings types — a deliberate, different choice, not an
 inconsistency.** `V17__seed_loan_types.sql` gave every real co-op the same three products

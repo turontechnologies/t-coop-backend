@@ -147,12 +147,35 @@ withdrawal fee breakdown (`fee_percent`, `fee_amount`, `net_amount`),
 locked in at request time.
 
 ### `loan_records`
-One row per loan application/loan. Repayment schedule is **computed**,
-not stored (same as the mock) — `repayments_made` plus the loan's own
-amount/duration/total fields are enough to derive the full schedule
-on demand. A real "record a repayment" endpoint is a known open
-question (flagged in `api-contracts.md` §6) — deferred until product
-decides the model (auto-deduct vs. admin-recorded).
+One row per loan application/loan. `status` runs `Awaiting Guarantor →
+Awaiting Vice President → Awaiting Treasurer → Awaiting Secretary → Active →
+Completed`, or `Rejected` (V40 replaced the old single `Awaiting Admin`
+step). The repayment schedule is **computed**, not stored —
+`repayments_made` plus the loan's own amount/duration/total fields derive
+it; each actual payment is a `loan_repayments` row (V35). The
+`disbursement_*` / `disbursed_*` columns (V40) record the Paystack transfer
+that paid the loan out when the Secretary approved it — `disbursed_amount`
+is principal minus loan charges.
+
+### `loan_approvals` (V40)
+The loan's approval trail — one row per officer decision: which office it
+was made as (`step`: `VICE_PRESIDENT`/`TREASURER`/`SECRETARY`, or
+`PRESIDENT` for a rejection), `Approved`/`Rejected`, who, and `covering`
+when the co-op admin stood in for a vacant office.
+
+### `coop_roles`
+A co-op's named permission sets for its staff (V22); `members.coop_role_id`
+points at one. `office` (V40) is set only on the four fixed officer roles
+(`PRESIDENT`/`VICE_PRESIDENT`/`TREASURER`/`SECRETARY`) — one per co-op each
+(filtered unique index), created with every co-op.
+
+### `cooperative_payment_gateways` (V39)
+A co-op's own Paystack/Flutterwave credentials, one row per co-op, created
+on first save. When enabled, the co-op's member deposits, loan repayments,
+and loan payouts use them instead of the platform's. `savings_payment_intents`
+and `loan_payment_intents` record which `gateway` and whose keys
+(`key_owner`) a payment started with, so confirmation verifies against the
+same account.
 
 ### `notices` / `notice_target_cooperatives` / `notice_replies` / `notice_read_receipts`
 A notice can target more than one co-op (super admin picks which
@@ -188,17 +211,16 @@ label mean" from free text.
 ### `platform_fee_settings`
 Singleton row (`id = 1`) for super-admin-level settings: the platform's
 own withdrawal fee percent, savings/loan charge config, collections bank
-account (`collection_*` columns, added in V6), and Paystack/Flutterwave
-credential fields (`paystack_*`/`flutterwave_*`, also V6 — stored for
-reference only, never read by the live Paystack integration, which always
-uses the server's own `PAYSTACK_SECRET_KEY` env var). Enforced as a single
+account (`collection_*` columns, added in V6), and the platform's gateway
+credentials (`paystack_*`/`flutterwave_*` V6, `opay_*` V14, `sms_*` V21).
+These are read live — subscription checkout, bank lookups, and co-op
+payments/payouts when a co-op has no gateway of its own. Enforced as a single
 row via a check constraint, not a real multi-tenant table — there's one
 platform.
 
 ### `password_reset_tokens`
 Backs the forgot-password/OTP/reset flow (`api-contracts.md` §1) properly
-server-side — OTP is hashed, never returned in a response (unlike the
-current mock, which is explicitly flagged as a gap to close).
+server-side — OTP is hashed and never returned in a response.
 
 ### `audit_log`
 Matches the frontend's existing audit-log feature (`module`, `action`,
@@ -210,6 +232,7 @@ writes one row here.
 - **File storage** — `attachment_url` / `receipt_url` / `document_url`
   columns store a URL (Cloudinary), not file bytes. The backend's
   `/api/uploads` endpoint (already built) is what produces that URL.
-- **Loan repayments as a real ledger** — see `loan_records` note above.
+- **Gateway secrets encrypted at rest** — `platform_fee_settings` and
+  `cooperative_payment_gateways` store them as plain `NVARCHAR`.
 - **Multi-tenant `platform_fee_settings`** — single row by design; revisit
   only if T-Coop ever hosts more than one platform instance.

@@ -14,7 +14,8 @@ public record MemberUpdateRequest(
     @NotBlank(message = "Select a role")
         @Pattern(regexp = "Admin|Member", message = "Select a valid role")
         String role,
-    @NotBlank(message = "Enter a guarantor") String guarantor,
+    /** Optional — members don't need a guarantor to join (only to take a loan). */
+    String guarantor,
     @NotBlank(message = "Select a country") String country,
     @NotBlank(message = "Select a state") String state,
     @NotBlank(message = "Select a city") String city,

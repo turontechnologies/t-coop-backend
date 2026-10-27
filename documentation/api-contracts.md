@@ -517,8 +517,10 @@ a loan type's name, not id).
     "id": "uuid", "memberId": "string", "memberName": "string", "loanType": "string",
     "amount": 40000, "interestRate": 5, "durationMonths": 3, "numberOfRepayments": 3,
     "monthlyRepayment": 14000, "totalRepayment": 42000, "guarantorName": "string",
-    "date": "iso-date", "status": "Awaiting Guarantor|Awaiting Admin|Active|Completed|Rejected",
-    "repaymentsMade": 3, "guarantorDocumentUrl": "string?", "rejectionReason": "string?"
+    "date": "iso-date",
+    "status": "Awaiting Guarantor|Awaiting Vice President|Awaiting Treasurer|Awaiting Secretary|Active|Completed|Rejected",
+    "repaymentsMade": 3, "guarantorDocumentUrl": "string?", "rejectionReason": "string?",
+    "disbursedAmount": 39000, "disbursementReference": "loan-<uuid>?", "disbursedAt": "iso-datetime?"
   }
 ]
 ```
@@ -535,32 +537,72 @@ Single record, same shape as one list item above.
 
 Computed as `min(maxAmount, totalSavings * eligibilityPercent / 100)`.
 
-### `POST /cooperatives/:id/loans` (member requests a loan) — not yet built
+### `POST /cooperatives/:id/loans` (member requests a loan) — **built**
 
 ```json
 // Request
-{ "loanType": "string", "amount": 50000, "guarantorId": "string" }
+{ "loanTypeId": "uuid", "amount": 50000, "guarantorMemberId": "string" }
 // Response — status starts "Awaiting Guarantor"
 ```
-Response shape matches the list item above.
+Response shape matches the list item above. The guarantor must be an **active member of the
+same co-op** and not the applicant (`400` otherwise). This is the only place a guarantor is
+named — adding a member needs none.
 
-### `PATCH /loans/:id/guarantor-response` — not yet built
+### `PATCH /cooperatives/:id/loans/:loanId/guarantor-response` — **built**
 
 ```json
-// Request
-{ "decision": "Accepted|Rejected", "documentFile": "multipart file?" }
+{ "decision": "Accepted|Rejected", "documentUrl": "string?" }
 ```
 
-`Accepted` → status moves to `Awaiting Admin`. `Rejected` → status moves to `Rejected`.
+Named guarantor only. `Accepted` → `Awaiting Vice President` (the VP, or the admin if that
+office is vacant, is notified). `Rejected` → `Rejected`.
 
-### `PATCH /loans/:id/decision` (admin) — not yet built
+### Officer approval chain — **built** (V40)
+
+Every co-op has four fixed officer roles — President, Vice President, Treasurer, Secretary —
+as co-op roles with `office` set (`PRESIDENT|VICE_PRESIDENT|TREASURER|SECRETARY`). They're
+created with the co-op (V40 backfilled existing ones), assigned through User Management like any
+role, held by **one member each**, and can't be renamed, deactivated, or deleted (`409`). Their
+permissions are editable.
+
+A loan moves **Guarantor → Vice President → Treasurer → Secretary**. At each step only that
+office's holder can approve or reject. If the office is vacant — or its holder is the loan's
+borrower or guarantor — the co-op **admin covers** that step. The **President** can reject (not
+approve) at any open stage, including while it awaits the guarantor. Nobody acts on a loan they
+borrowed or guaranteed. Super admins don't act on loans.
+
+### `GET /cooperatives/:id/loans/:loanId/approvals` — **built**
 
 ```json
-// Request
+{
+  "chain": [{ "office": "VICE_PRESIDENT", "label": "Vice President", "holderName": "string|null" }],
+  "trail": [{ "office": "VICE_PRESIDENT", "label": "Vice President", "decision": "Approved|Rejected",
+              "memberName": "string", "covering": false, "note": "string?", "actedAt": "iso-datetime" }],
+  "currentStep": "TREASURER|null",
+  "canApprove": true, "canReject": true,
+  "actingAs": "Treasurer|Admin (covering for Treasurer)|President|null",
+  "netDisbursement": 39000
+}
+```
+
+Borrower, guarantor, admin, and co-op staff can read it; `canApprove`/`canReject`/`actingAs` are
+for the caller.
+
+### `PATCH /cooperatives/:id/loans/:loanId/decision` — **built**
+
+```json
 { "decision": "Approved|Rejected", "rejectionReason": "string?" }
 ```
 
-On `Approved`: trigger a real payout via §10 to the member's bank details, same "don't mark Approved unless the transfer succeeded" rule as savings withdrawals. Moves status to `Active` (or `Rejected`).
+Acts on the current step as the caller's office (`403` if it isn't theirs). Approving at Vice
+President / Treasurer moves to the next office and notifies it. **Approving at Secretary pays
+the loan out immediately**: a server-side Paystack transfer of principal minus loan charges to
+the borrower's saved bank account, from the co-op's own Paystack (Settings → Integrations) if
+connected, else the platform's. The transfer reference is `loan-<loanId>`, so a retry can never
+pay twice. Only if Paystack accepts the transfer (`success`/`pending`) does the loan become
+`Active`; otherwise nothing changes and the error is returned (`409` no bank account / no
+Paystack set up, `502` Paystack refused — including transfer-OTP being switched on). Every
+decision is stored in `loan_approvals`.
 
 ### `GET /loans/:id/repayment-schedule` — not yet built
 
