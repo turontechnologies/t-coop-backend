@@ -30,22 +30,45 @@ public class SavingsPaymentIntent {
   private BigDecimal amount;
   private String status;
 
+  /** Which gateway, and whose credentials (see CoopGatewayResolver), this payment was started
+   * with — confirm verifies against exactly these. */
+  private String gateway;
+
+  @Column(name = "key_owner")
+  private String keyOwner;
+
   protected SavingsPaymentIntent() {
     // JPA
   }
 
   public SavingsPaymentIntent(
-      String reference, String cooperativeId, String memberId, UUID savingsTypeId, BigDecimal amount) {
+      String reference,
+      String cooperativeId,
+      String memberId,
+      UUID savingsTypeId,
+      BigDecimal amount,
+      String gateway,
+      String keyOwner) {
     this.reference = reference;
     this.cooperativeId = cooperativeId;
     this.memberId = memberId;
     this.savingsTypeId = savingsTypeId;
     this.amount = amount;
     this.status = "Pending";
+    this.gateway = gateway;
+    this.keyOwner = keyOwner;
   }
 
   public String getReference() {
     return reference;
+  }
+
+  public String getGateway() {
+    return gateway;
+  }
+
+  public String getKeyOwner() {
+    return keyOwner;
   }
 
   public String getCooperativeId() {

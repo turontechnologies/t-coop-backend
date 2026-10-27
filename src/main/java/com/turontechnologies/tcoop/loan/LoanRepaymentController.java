@@ -1,11 +1,10 @@
 package com.turontechnologies.tcoop.loan;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
-import com.turontechnologies.tcoop.settings.PlatformSettings;
-import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import com.turontechnologies.tcoop.subscription.PaymentGatewayService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -23,7 +22,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * A borrower's own loan-installment repayment (Paystack initialize/confirm, mirroring
+ * A borrower's own loan-installment repayment (online initialize/confirm through the co-op's
+ * gateway — see CoopGatewayResolver — mirroring
  * {@code SavingsSelfServiceController}'s deposit pattern exactly), and an admin/coop-staff's
  * manual entry after receiving payment offline. Every repayment pays exactly one fixed
  * installment — this app doesn't support partial or arbitrary-amount repayments, so the amount is
@@ -32,16 +32,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class LoanRepaymentController {
 
-  private static final Integer SETTINGS_SINGLETON_ID = 1;
-
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
   private final LoanTypeRepository loanTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
   private final LoanPaymentIntentRepository intentRepository;
   private final LoanRepaymentRepository loanRepaymentRepository;
-  private final PlatformSettingsRepository platformSettingsRepository;
-  private final PaymentGatewayService paymentGatewayService;
+  private final CoopGatewayResolver gatewayResolver;
   private final AuditLogService auditLogService;
 
   public LoanRepaymentController(
@@ -51,8 +48,7 @@ public class LoanRepaymentController {
       LoanRecordRepository loanRecordRepository,
       LoanPaymentIntentRepository intentRepository,
       LoanRepaymentRepository loanRepaymentRepository,
-      PlatformSettingsRepository platformSettingsRepository,
-      PaymentGatewayService paymentGatewayService,
+      CoopGatewayResolver gatewayResolver,
       AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
@@ -60,8 +56,7 @@ public class LoanRepaymentController {
     this.loanRecordRepository = loanRecordRepository;
     this.intentRepository = intentRepository;
     this.loanRepaymentRepository = loanRepaymentRepository;
-    this.platformSettingsRepository = platformSettingsRepository;
-    this.paymentGatewayService = paymentGatewayService;
+    this.gatewayResolver = gatewayResolver;
     this.auditLogService = auditLogService;
   }
 
@@ -96,19 +91,27 @@ public class LoanRepaymentController {
     var dueCheck = requireDue(loan);
     if (dueCheck.error() != null) return dueCheck.error();
 
-    PlatformSettings settings = platformSettings();
-    if (!settings.isPaystackEnabled() || !notBlank(settings.getPaystackPublicKey())) {
-      return ResponseEntity.status(409).body(Map.of("error", "Paystack isn't set up for this platform yet."));
+    CoopGatewayResolver.Checkout checkout = gatewayResolver.checkoutFor(id).orElse(null);
+    if (checkout == null) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "Online payments aren't set up for this co-operative yet."));
     }
 
     String reference = "LNRPY-" + id + "-" + System.currentTimeMillis();
     intentRepository.save(
         new LoanPaymentIntent(
-            reference, loan.getId(), id, access.caller().getId(), dueCheck.installmentNumber(), dueCheck.amount()));
+            reference,
+            loan.getId(),
+            id,
+            access.caller().getId(),
+            dueCheck.installmentNumber(),
+            dueCheck.amount(),
+            checkout.gateway(),
+            checkout.keyOwner()));
 
     return ResponseEntity.ok(
         new InitializeLoanRepaymentResponseDto(
-            reference, dueCheck.installmentNumber(), dueCheck.amount(), settings.getPaystackPublicKey()));
+            reference, dueCheck.installmentNumber(), dueCheck.amount(), checkout.gateway(), checkout.publicKey()));
   }
 
   @PostMapping("/api/v1/cooperatives/{id}/loans/{loanId}/repayments/confirm")
@@ -131,9 +134,8 @@ public class LoanRepaymentController {
       return ResponseEntity.status(409).body(Map.of("error", "That payment was already confirmed."));
     }
 
-    PlatformSettings settings = platformSettings();
     PaymentGatewayService.VerificationResult verification =
-        paymentGatewayService.verifyPaystack(intent.getReference(), settings.getPaystackSecretKey());
+        gatewayResolver.verify(id, intent.getGateway(), intent.getKeyOwner(), intent.getReference());
 
     if (!verification.success()) {
       intent.setStatus("Failed");
@@ -154,7 +156,7 @@ public class LoanRepaymentController {
     LoanRepayment repayment =
         recordRepayment(
             access.loan(), id, access.caller().getId(), intent.getInstallmentNumber(), intent.getAmount(),
-            "Paystack", intent.getReference());
+            intent.getGateway(), intent.getReference());
 
     auditLogService.log(
         access.caller().getId(), access.caller().getRole(), "Loans", "Update", "Repayment", "Success", httpRequest);
@@ -271,16 +273,6 @@ public class LoanRepaymentController {
     } catch (IllegalArgumentException e) {
       return null;
     }
-  }
-
-  private boolean notBlank(String value) {
-    return value != null && !value.isBlank();
-  }
-
-  private PlatformSettings platformSettings() {
-    return platformSettingsRepository
-        .findById(SETTINGS_SINGLETON_ID)
-        .orElseThrow(() -> new IllegalStateException("Platform settings row is missing"));
   }
 
   private record LoanAccess(Member caller, LoanRecord loan, ResponseEntity<?> error) {}

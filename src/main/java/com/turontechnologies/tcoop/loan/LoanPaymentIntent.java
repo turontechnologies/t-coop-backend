@@ -30,6 +30,13 @@ public class LoanPaymentIntent {
   private BigDecimal amount;
   private String status;
 
+  /** Which gateway, and whose credentials (see CoopGatewayResolver), this payment was started
+   * with — confirm verifies against exactly these. */
+  private String gateway;
+
+  @Column(name = "key_owner")
+  private String keyOwner;
+
   protected LoanPaymentIntent() {
     // JPA
   }
@@ -40,7 +47,9 @@ public class LoanPaymentIntent {
       String cooperativeId,
       String memberId,
       int installmentNumber,
-      BigDecimal amount) {
+      BigDecimal amount,
+      String gateway,
+      String keyOwner) {
     this.reference = reference;
     this.loanId = loanId;
     this.cooperativeId = cooperativeId;
@@ -48,10 +57,20 @@ public class LoanPaymentIntent {
     this.installmentNumber = installmentNumber;
     this.amount = amount;
     this.status = "Pending";
+    this.gateway = gateway;
+    this.keyOwner = keyOwner;
   }
 
   public String getReference() {
     return reference;
+  }
+
+  public String getGateway() {
+    return gateway;
+  }
+
+  public String getKeyOwner() {
+    return keyOwner;
   }
 
   public UUID getLoanId() {

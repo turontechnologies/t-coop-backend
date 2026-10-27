@@ -1,6 +1,7 @@
 package com.turontechnologies.tcoop.savings;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
@@ -45,7 +46,7 @@ public class SavingsSelfServiceController {
   private final SavingsPaymentIntentRepository intentRepository;
   private final SavingsRequestRepository savingsRequestRepository;
   private final PlatformSettingsRepository platformSettingsRepository;
-  private final PaymentGatewayService paymentGatewayService;
+  private final CoopGatewayResolver gatewayResolver;
   private final AuditLogService auditLogService;
 
   public SavingsSelfServiceController(
@@ -56,7 +57,7 @@ public class SavingsSelfServiceController {
       SavingsPaymentIntentRepository intentRepository,
       SavingsRequestRepository savingsRequestRepository,
       PlatformSettingsRepository platformSettingsRepository,
-      PaymentGatewayService paymentGatewayService,
+      CoopGatewayResolver gatewayResolver,
       AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
@@ -65,7 +66,7 @@ public class SavingsSelfServiceController {
     this.intentRepository = intentRepository;
     this.savingsRequestRepository = savingsRequestRepository;
     this.platformSettingsRepository = platformSettingsRepository;
-    this.paymentGatewayService = paymentGatewayService;
+    this.gatewayResolver = gatewayResolver;
     this.auditLogService = auditLogService;
   }
 
@@ -88,9 +89,10 @@ public class SavingsSelfServiceController {
           .body(Map.of("error", "Amount must be between the type's minimum and maximum"));
     }
 
-    PlatformSettings settings = platformSettings();
-    if (!settings.isPaystackEnabled() || !notBlank(settings.getPaystackPublicKey())) {
-      return ResponseEntity.status(409).body(Map.of("error", "Paystack isn't set up for this platform yet."));
+    CoopGatewayResolver.Checkout checkout = gatewayResolver.checkoutFor(id).orElse(null);
+    if (checkout == null) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "Online payments aren't set up for this co-operative yet."));
     }
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -99,14 +101,16 @@ public class SavingsSelfServiceController {
 
     String reference = "SAV-" + id + "-" + System.currentTimeMillis();
     intentRepository.save(
-        new SavingsPaymentIntent(reference, id, member.getId(), type.getId(), request.amount()));
+        new SavingsPaymentIntent(
+            reference, id, member.getId(), type.getId(), request.amount(), checkout.gateway(), checkout.keyOwner()));
 
-    BigDecimal chargeAmount = savingsChargeFor(coop, settings, request.amount());
+    BigDecimal chargeAmount = savingsChargeFor(coop, platformSettings(), request.amount());
     return ResponseEntity.ok(
         new InitializeSavingsDepositResponseDto(
             reference,
             request.amount(),
-            settings.getPaystackPublicKey(),
+            checkout.gateway(),
+            checkout.publicKey(),
             chargeAmount,
             request.amount().subtract(chargeAmount)));
   }
@@ -131,7 +135,7 @@ public class SavingsSelfServiceController {
 
     PlatformSettings settings = platformSettings();
     PaymentGatewayService.VerificationResult verification =
-        paymentGatewayService.verifyPaystack(intent.getReference(), settings.getPaystackSecretKey());
+        gatewayResolver.verify(id, intent.getGateway(), intent.getKeyOwner(), intent.getReference());
 
     if (!verification.success()) {
       intent.setStatus("Failed");
@@ -164,7 +168,7 @@ public class SavingsSelfServiceController {
             intent.getSavingsTypeId(),
             netAmount,
             balanceAfter,
-            "Paystack",
+            intent.getGateway(),
             intent.getReference(),
             "Success",
             null);
