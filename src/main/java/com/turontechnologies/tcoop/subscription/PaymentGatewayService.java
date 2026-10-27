@@ -26,13 +26,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Verifies a subscription payment directly against the real gateway API, server-side, using the
- * secret key the super admin entered in Settings -> Integrations ({@link
- * com.turontechnologies.tcoop.settings.PlatformSettings}) — never a static env var, and never the
- * client's own say-so. This is the one place in the codebase that talks to Paystack/Flutterwave
- * for an inbound (member-pays-platform) charge; the existing {@code src/app/api/paystack/*}
- * route handlers in the frontend are unrelated — those are outbound payouts to member bank
- * accounts and don't verify anything.
+ * Talks to the real gateway APIs server-side — verifying inbound payments (subscriptions, savings
+ * deposits, loan repayments) and Paystack bank lookups — always with a secret key the caller
+ * passes in: the platform's from Settings -> Integrations ({@link
+ * com.turontechnologies.tcoop.settings.PlatformSettings}), or a co-op's own (see
+ * CoopGatewayResolver). Never a static env var, and never the client's own say-so. Outbound bank
+ * payouts are the one exception, still in the web app's {@code src/app/api/paystack/transfer*}.
  */
 @Service
 public class PaymentGatewayService {

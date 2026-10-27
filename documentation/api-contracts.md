@@ -960,12 +960,13 @@ co-operative's account.
 }
 ```
 
-**Paystack/Flutterwave credentials here are reference only — never wired into a live payment
-call.** The real Paystack integration (`t-coop-app/src/app/api/paystack/*`) always reads its keys
-from the server environment (`PAYSTACK_SECRET_KEY`), never from values saved here; Flutterwave has
-no live payout route handler at all. Don't change that without a deliberate decision — see the
-javadoc on `IntegrationSettingsUpdateRequest`. **OPay and SMS are different — both are read live**:
-OPay by `PaymentGatewayService` on every subscription checkout (section 8), SMS by `SmsService`
+**Every credential here is read live.** Paystack/Flutterwave/OPay by `PaymentGatewayService` on
+every subscription checkout (section 8); Paystack also by `PaystackUtilityController`
+(`GET /paystack/banks`, `POST /paystack/resolve-account`, which back every bank picker on web and
+mobile) and by `CoopGatewayResolver` for members' savings deposits and loan repayments in any co-op
+that hasn't connected its own gateway (see "Co-op payment gateways" below). The only Paystack path
+still on an env var is outbound bank payouts — the web app's `src/app/api/paystack/transfer*`
+routes read `PAYSTACK_SECRET_KEY`. SMS is read by `SmsService`
 (`com.turontechnologies.tcoop.notice`) whenever a Notice Board post's medium includes "SMS"
 (section 7/14) — Termii is the only SMS provider wired up. `smsSenderId` must be an alphanumeric
 Sender ID approved in the platform's Termii dashboard, or sends fail with
@@ -977,12 +978,62 @@ existing singleton, `V14__opay_integration.sql` added OPay's, `V21__sms_integrat
 SMS's). Every update audit-logged (module `Settings` / action `Update` / resource `Fees & Charges`
 / `Collections Account` / `Integrations`).
 
-**Known gap:** Paystack/Flutterwave secret fields are stored as plain
-`NVARCHAR`, not encrypted at rest — acceptable for now since they're
-explicitly non-live "reference" values (mirrors the mock's prior
-in-memory-only behavior, not a regression), but genuine secret-at-rest
-handling (encryption, masked responses) would be needed before this ever
-becomes the live credential source.
+**Known gap:** secret fields here are stored as plain `NVARCHAR`, not encrypted at rest, and
+this endpoint returns them unmasked to the super admin. The co-op endpoint below masks them in
+responses; neither encrypts at rest yet.
+
+### `GET` / `PATCH /cooperatives/{id}/integrations` — co-op payment gateways
+
+A co-op's own Paystack/Flutterwave account (co-op admin's Settings → Integrations). When one is
+on, that co-op's members' savings deposits and loan repayments are paid into it instead of the
+platform's account.
+
+`GET` response:
+
+```json
+{
+  "paystackEnabled": true,
+  "paystackPublicKey": "pk_live_…",
+  "paystackSecretKeySet": true,
+  "flutterwaveEnabled": false,
+  "flutterwavePublicKey": "",
+  "flutterwaveSecretKeySet": false,
+  "updatedAt": "2026-10-27T10:00:00"
+}
+```
+
+Secret keys are **never returned** — only whether one is saved.
+
+`PATCH` request:
+
+```json
+{
+  "paystackEnabled": true,
+  "paystackPublicKey": "pk_live_…",
+  "paystackSecretKey": "",
+  "flutterwaveEnabled": false,
+  "flutterwavePublicKey": "",
+  "flutterwaveSecretKey": ""
+}
+```
+
+A blank secret keeps the saved one. Turning a gateway on requires both keys (new or saved);
+`400` if either is missing, has the wrong prefix (`pk_`/`sk_` for Paystack,
+`FLWPUBK`/`FLWSECK` for Flutterwave), or if one is a test key and the other live.
+
+**Access:** the co-op's own admin, or co-op staff whose role grants Settings → Integrations
+(`read` for `GET`, `write` for `PATCH`); `403` for everyone else, super admins included — these
+keys move money into the co-op's account, not the platform's. Updates audit-logged (module
+`Settings` / action `Update` / resource `Payment Integrations`).
+
+**How payments use it** (`CoopGatewayResolver`): the savings-deposit and loan-repayment
+`…/initialize` endpoints pick the co-op's Paystack if on, else its Flutterwave, else the
+platform's Paystack, and return `{ …, "gateway": "Paystack|Flutterwave", "publicKey": "…" }`.
+The gateway and key owner are stored on the payment intent, so `…/confirm` verifies against
+the same account even if the admin changes settings in between. `409` if none is available.
+Recorded `method` is the gateway name (`Paystack`/`Flutterwave`), or `Manual Upload`.
+
+**Built.** `coopgateway` package, `V39__cooperative_payment_gateways.sql`.
 
 ---
 

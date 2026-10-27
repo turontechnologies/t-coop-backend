@@ -25,3 +25,6 @@ target/
 ### Env / secrets ###
 .env
 .env.local
+
+### Runtime logs ###
+scripts/*.log
