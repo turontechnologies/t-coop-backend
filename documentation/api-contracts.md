@@ -440,11 +440,16 @@ Admin/co-op staff record a deposit paid offline; `method` is `Manual Upload`.
 ### `PATCH /cooperatives/:id/savings/withdrawals/:requestId` — **built**
 
 ```json
-{ "status": "Approved|Declined", "transferReference": "string (required to approve)" }
+{ "status": "Approved|Declined" }
 ```
 
-The web app sends the payout first (its `/api/paystack/transfer` route) and only then approves
-with the resulting reference. Unlike loan payouts, this one isn't server-side yet.
+Admin / co-op staff. **Approving pays the member out immediately, server-side** — a Paystack
+transfer of `netAmount` (amount minus the withdrawal fee) to the member's saved bank account,
+from the co-op's own Paystack if connected, else the platform's (same rule as loan payouts).
+The reference is `wd-<requestId>`, so a retry can't pay twice. Only if Paystack accepts the
+transfer is the request `Approved` and a negative savings record (`method: Paystack`,
+`transactionId` = the reference) written; otherwise it stays `Pending` — `409` no bank account /
+no Paystack set up, `502` Paystack refused. Only `Withdrawal` requests can be decided here.
 
 ---
 
@@ -1000,10 +1005,9 @@ co-operative's account.
 **Every credential here is read live.** Paystack/Flutterwave/OPay by `PaymentGatewayService` on
 every subscription checkout (section 8); Paystack also by `PaystackUtilityController`
 (`GET /paystack/banks`, `POST /paystack/resolve-account`, which back every bank picker on web and
-mobile) and by `CoopGatewayResolver` for members' savings deposits and loan repayments in any co-op
-that hasn't connected its own gateway (see "Co-op payment gateways" below). The only Paystack path
-still on an env var is outbound bank payouts — the web app's `src/app/api/paystack/transfer*`
-routes read `PAYSTACK_SECRET_KEY`. SMS is read by `SmsService`
+mobile) and by `CoopGatewayResolver` for members' savings deposits, loan repayments, and loan and
+withdrawal payouts in any co-op that hasn't connected its own gateway (see "Co-op payment
+gateways" below). No payment key is read from an environment variable. SMS is read by `SmsService`
 (`com.turontechnologies.tcoop.notice`) whenever a Notice Board post's medium includes "SMS"
 (section 7/14) — Termii is the only SMS provider wired up. `smsSenderId` must be an alphanumeric
 Sender ID approved in the platform's Termii dashboard, or sends fail with
@@ -1023,7 +1027,7 @@ responses; neither encrypts at rest yet.
 
 A co-op's own Paystack/Flutterwave account (co-op admin's Settings → Integrations). When one is
 on, that co-op's members' savings deposits and loan repayments are paid into it instead of the
-platform's account.
+platform's account, and its loan and withdrawal payouts are sent from it (Paystack only).
 
 `GET` response:
 

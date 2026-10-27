@@ -47,6 +47,7 @@ public class SavingsSelfServiceController {
   private final SavingsRequestRepository savingsRequestRepository;
   private final PlatformSettingsRepository platformSettingsRepository;
   private final CoopGatewayResolver gatewayResolver;
+  private final PaymentGatewayService paymentGatewayService;
   private final AuditLogService auditLogService;
 
   public SavingsSelfServiceController(
@@ -58,6 +59,7 @@ public class SavingsSelfServiceController {
       SavingsRequestRepository savingsRequestRepository,
       PlatformSettingsRepository platformSettingsRepository,
       CoopGatewayResolver gatewayResolver,
+      PaymentGatewayService paymentGatewayService,
       AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
@@ -67,6 +69,7 @@ public class SavingsSelfServiceController {
     this.savingsRequestRepository = savingsRequestRepository;
     this.platformSettingsRepository = platformSettingsRepository;
     this.gatewayResolver = gatewayResolver;
+    this.paymentGatewayService = paymentGatewayService;
     this.auditLogService = auditLogService;
   }
 
@@ -345,11 +348,44 @@ public class SavingsSelfServiceController {
     if (!"Pending".equals(savingsRequest.getStatus())) {
       return ResponseEntity.status(409).body(Map.of("error", "That request was already resolved"));
     }
+    if (!"Withdrawal".equals(savingsRequest.getRequestType())) {
+      return ResponseEntity.status(409).body(Map.of("error", "Only withdrawal requests can be decided here"));
+    }
 
     if ("Approved".equals(request.status())) {
-      if (!notBlank(request.transferReference())) {
-        return ResponseEntity.badRequest().body(Map.of("error", "Missing transfer reference"));
+      // Pay the member out before recording anything — same rule as loan disbursement: the
+      // withdrawal only counts as approved once Paystack has actually accepted the transfer.
+      Member payee = memberRepository.findById(savingsRequest.getMemberId()).orElse(null);
+      String payeeName = payee != null ? payee.getFullName() : "This member";
+      if (payee == null || !notBlank(payee.getBankCode()) || !notBlank(payee.getAccountNumber())) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", payeeName + " hasn't added a verified bank account yet, so the withdrawal can't be paid out."));
       }
+      String payoutKey = gatewayResolver.payoutSecretKeyFor(id).orElse(null);
+      if (payoutKey == null) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "No Paystack account is set up to pay out withdrawals. Connect one in Settings → Integrations."));
+      }
+      Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+      BigDecimal payout =
+          savingsRequest.getNetAmount() != null ? savingsRequest.getNetAmount() : savingsRequest.getAmount();
+      // Fixed per request, so approving again after a hiccup can never pay the member twice.
+      String reference = "wd-" + savingsRequest.getId().toString().toLowerCase();
+
+      PaymentGatewayService.TransferResult transfer =
+          paymentGatewayService.initiatePaystackTransfer(
+              payoutKey,
+              notBlank(payee.getAccountName()) ? payee.getAccountName() : payeeName,
+              payee.getAccountNumber(),
+              payee.getBankCode(),
+              payout,
+              (coop != null ? coop.getName() : "T-Coop") + " savings withdrawal",
+              reference);
+      if (!transfer.success()) {
+        return ResponseEntity.status(502)
+            .body(Map.of("error", transfer.message() != null ? transfer.message() : "The payout didn't go through."));
+      }
+
       BigDecimal balanceAfter =
           savingsRecordRepository.sumByMember(savingsRequest.getMemberId()).subtract(savingsRequest.getAmount());
       SavingsRecord record =
@@ -359,8 +395,8 @@ public class SavingsSelfServiceController {
               savingsRequest.getSavingsTypeId(),
               savingsRequest.getAmount().negate(),
               balanceAfter,
-              "Manual Upload",
-              request.transferReference(),
+              "Paystack",
+              reference,
               "Success",
               null);
       savingsRecordRepository.save(record);
