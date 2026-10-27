@@ -339,6 +339,112 @@ public class PaymentGatewayService {
     }
   }
 
+  public record TransferResult(boolean success, String status, String message) {}
+
+  /**
+   * Pays {@code amount} out of the Paystack balance behind {@code secretKey} to a Nigerian bank
+   * account — register the recipient, then transfer. {@code reference} must be stable for the
+   * thing being paid (e.g. derived from a loan id): Paystack rejects a reused reference, so a
+   * retry can never pay twice, and a retry after an earlier success is recognised by verifying
+   * that reference instead. A "pending" transfer counts as success — Paystack settles it
+   * moments later. An "otp" transfer does not: the account has transfer OTP switched on, which
+   * an automated payout can't complete.
+   */
+  public TransferResult initiatePaystackTransfer(
+      String secretKey,
+      String accountName,
+      String accountNumber,
+      String bankCode,
+      BigDecimal amount,
+      String reason,
+      String reference) {
+    if (secretKey == null || secretKey.isBlank()) {
+      return new TransferResult(false, null, "Paystack isn't set up for payouts yet.");
+    }
+    try {
+      Map<String, Object> recipientPayload = new TreeMap<>();
+      recipientPayload.put("type", "nuban");
+      recipientPayload.put("name", accountName);
+      recipientPayload.put("account_number", accountNumber);
+      recipientPayload.put("bank_code", bankCode);
+      recipientPayload.put("currency", "NGN");
+      JsonNode recipient = postPaystack("/transferrecipient", recipientPayload, secretKey);
+      if (!recipient.path("status").asBoolean(false)) {
+        return new TransferResult(
+            false, null, recipient.path("message").asText("Couldn't register that bank account for payout."));
+      }
+
+      Map<String, Object> transferPayload = new TreeMap<>();
+      transferPayload.put("source", "balance");
+      transferPayload.put(
+          "amount", amount.multiply(BigDecimal.valueOf(100)).setScale(0, RoundingMode.HALF_UP).longValueExact());
+      transferPayload.put("recipient", recipient.path("data").path("recipient_code").asText());
+      transferPayload.put("reason", reason);
+      transferPayload.put("reference", reference);
+      JsonNode transfer = postPaystack("/transfer", transferPayload, secretKey);
+
+      if (!transfer.path("status").asBoolean(false)) {
+        // Most likely a retry of a transfer that already went through — trust Paystack's record.
+        TransferResult existing = verifyPaystackTransfer(reference, secretKey);
+        if (existing.success()) return existing;
+        return new TransferResult(
+            false, null, transfer.path("message").asText("Paystack couldn't start that payout."));
+      }
+      return interpretTransferStatus(transfer.path("data").path("status").asText(""));
+    } catch (HttpTimeoutException e) {
+      log.warn("Paystack transfer timed out for reference {}", reference);
+      return new TransferResult(false, null, "Couldn't reach Paystack right now. Please try again.");
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+      log.error("Paystack transfer failed for reference {}: {}", reference, e.getMessage());
+      return new TransferResult(false, null, "Couldn't process that payout. Please try again.");
+    }
+  }
+
+  private TransferResult verifyPaystackTransfer(String reference, String secretKey)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(URI.create("https://api.paystack.co/transfer/verify/" + reference))
+            .header("Authorization", "Bearer " + secretKey)
+            .timeout(Duration.ofSeconds(15))
+            .GET()
+            .build();
+    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    JsonNode body = objectMapper.readTree(response.body());
+    if (response.statusCode() != 200 || !body.path("status").asBoolean(false)) {
+      return new TransferResult(false, null, null);
+    }
+    return interpretTransferStatus(body.path("data").path("status").asText(""));
+  }
+
+  private static TransferResult interpretTransferStatus(String status) {
+    return switch (status) {
+      case "success", "pending", "processing", "received" -> new TransferResult(true, status, null);
+      case "otp" ->
+          new TransferResult(
+              false,
+              status,
+              "This Paystack account asks for an OTP on every transfer. Turn off \"Confirm transfers"
+                  + " with OTP\" in Paystack Settings -> Preferences so payouts can go out automatically.");
+      default -> new TransferResult(false, status, "The payout didn't go through (" + status + ").");
+    };
+  }
+
+  private JsonNode postPaystack(String path, Map<String, Object> payload, String secretKey)
+      throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(URI.create("https://api.paystack.co" + path))
+            .header("Authorization", "Bearer " + secretKey)
+            .header("Content-Type", "application/json")
+            .timeout(Duration.ofSeconds(20))
+            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
+            .build();
+    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    return objectMapper.readTree(response.body());
+  }
+
   private JsonNode callOpay(String path, String json, String authorization, String merchantId)
       throws IOException, InterruptedException, NoSuchAlgorithmException, InvalidKeyException {
     HttpRequest request =

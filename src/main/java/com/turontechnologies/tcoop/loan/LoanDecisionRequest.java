@@ -3,12 +3,10 @@ package com.turontechnologies.tcoop.loan;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
-/** {@code transferReference} is required for an Approve — same "transfer already happened"
- * contract as savings withdrawal approval: the frontend calls this only after the real Paystack
- * Transfer disbursement has already succeeded. */
+/** An officer's decision on the loan's current approval step. There's no transfer reference —
+ * the Secretary's approval disburses server-side (see LoanSelfServiceController.decide). */
 public record LoanDecisionRequest(
     @NotBlank(message = "Missing decision")
         @Pattern(regexp = "Approved|Rejected", message = "Invalid decision")
         String decision,
-    String rejectionReason,
-    String transferReference) {}
+    String rejectionReason) {}
