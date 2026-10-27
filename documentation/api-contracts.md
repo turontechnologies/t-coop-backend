@@ -178,9 +178,8 @@ unbuilt.
 ### `GET /cooperatives/:id/members` — **built**
 
 Every real member (`admin`/`member` role) of one co-op — the super-admin oversight Members tab.
-Read-only: no `PATCH` exists yet to edit a member's profile or toggle their status from this
-view (that's still the frontend's mock `useCoopStore`) — the frontend must not offer those
-actions as if they persist against this data.
+Members are edited and enabled/disabled through `PATCH /cooperatives/:id/members/:memberId` and
+`.../status` (§3).
 
 ```json
 [
@@ -327,13 +326,8 @@ Same shape as request body (minus `membershipId`, which is fixed). Returns the u
 
 ## 5. Savings
 
-**Super-admin oversight is built** (`SavingsController`) — read-only, backing the
-`/co-operatives/[id]/savings/...` pages. The admin/member self-service endpoints below it
-("Upload Teller", member deposit/withdrawal requests, request approval) are **not yet built** —
-that flow still lives entirely in the frontend's mock `useCoopStore`, same as before; see
-`t-coop-app/documentation/savings-page.md`. Building those against this backend is a separate,
-larger task (it needs a `SavingsRequest` entity/table wiring, and — on `Approved` + `Withdrawal`
-— the same real-payout guarantee already built for Subscriptions/Loans, per §10).
+**All built.** `SavingsController` serves the read side (types, records); `SavingsSelfServiceController`
+serves deposits, "Upload Teller", and withdrawal requests/decisions.
 
 ### `GET /cooperatives/:id/savings/types` — **built**
 
@@ -405,52 +399,59 @@ List savings records for one co-op, newest first. Every filter is optional:
 
 Single record, same shape as one list item above.
 
-### `POST /cooperatives/:id/savings` (admin manual/teller upload) — not yet built
+### `POST /cooperatives/:id/savings/deposits/initialize` / `.../deposits/confirm` — **built**
+
+A member's online deposit. Initialize fixes the amount and picks the gateway (the co-op's own
+Paystack, else its own Flutterwave, else the platform's Paystack — see §13 "Co-op payment
+gateways"); the client opens that gateway's checkout with `publicKey`, then confirms.
 
 ```json
-// Request
-{
-  "memberId": "string",
-  "savingsType": "string",
-  "amount": 90000,
-  "receiptFile": "multipart file?"
-}
-// Response: the created record (balanceAfter computed server-side)
+// initialize request
+{ "savingsTypeId": "uuid", "amount": 90000 }
+// initialize response
+{ "reference": "SAV-…", "amount": 90000, "gateway": "Paystack|Flutterwave",
+  "publicKey": "string", "chargeAmount": 225, "netAmount": 89775 }
+// confirm request
+{ "reference": "SAV-…" }
+// confirm response
+{ "record": { /* savings record */ }, "grossAmount": 90000, "chargeAmount": 225 }
 ```
 
-### `POST /savings/requests` (member self-service) — not yet built
+Confirm verifies the reference against the gateway server-side (`402` if it isn't paid in full).
+The record's `method` is the gateway name; `amount` is net of the savings charge.
+
+### `POST /cooperatives/:id/savings/deposits/manual` ("Upload Teller") — **built**
 
 ```json
-// Request
-{ "savingsType": "string", "type": "Deposit|Withdrawal", "amount": 90000, "note": "string?" }
-// Response
-{
-  "id": "string", "memberId": "string", "memberName": "string",
-  "type": "Deposit|Withdrawal", "savingsType": "string", "amount": 90000,
-  "note": "string?", "status": "Pending", "requestedAt": "iso-datetime"
-}
+{ "memberId": "string", "savingsTypeId": "uuid", "amount": 90000, "receiptUrl": "string?" }
 ```
 
-### `GET /cooperatives/:id/savings/requests` — not yet built
+Admin/co-op staff record a deposit paid offline; `method` is `Manual Upload`.
 
-List, same shape as above plus `resolvedAt`. `admin` sees their own co-op's; `super_admin` can pass no `:id` filter to see all.
-
-### `PATCH /savings/requests/:id` — not yet built
+### `POST` / `GET /cooperatives/:id/savings/withdrawals` — **built**
 
 ```json
-// Request
-{ "status": "Approved|Declined" }
+// POST (member) request
+{ "savingsTypeId": "uuid?", "amount": 50000, "note": "string?" }
 ```
 
-On `Approved` + `type: Withdrawal`: backend must trigger a real payout via §10 (`/payouts/transfer`) to the member's saved bank details before marking it Approved. If the transfer fails, the request must stay `Pending` and the error surfaced back to the client — don't mark Approved if money didn't move.
+`GET` lists the co-op's withdrawal requests (staff) or the caller's own (member).
+
+### `PATCH /cooperatives/:id/savings/withdrawals/:requestId` — **built**
+
+```json
+{ "status": "Approved|Declined", "transferReference": "string (required to approve)" }
+```
+
+The web app sends the payout first (its `/api/paystack/transfer` route) and only then approves
+with the resulting reference. Unlike loan payouts, this one isn't server-side yet.
 
 ---
 
 ## 6. Loans
 
-**Super-admin oversight is built** (`LoanController`) — read-only, mirroring §5 Savings exactly.
-Everything below that isn't marked **built** is still the frontend's mock `useCoopStore` — see
-`t-coop-app/documentation/loans-page.md`.
+`LoanController` serves the read side; `LoanSelfServiceController` the application, guarantor, and
+officer approval chain; `LoanRepaymentController` repayments.
 
 ### `GET /cooperatives/:id/loans/types` — **built**
 
@@ -604,27 +605,21 @@ pay twice. Only if Paystack accepts the transfer (`success`/`pending`) does the 
 Paystack set up, `502` Paystack refused — including transfer-OTP being switched on). Every
 decision is stored in `loan_approvals`.
 
-### `GET /loans/:id/repayment-schedule` — not yet built
+### Loan repayments — **built** (`LoanRepaymentController`)
 
-```json
-[
-  {
-    "installment": 1,
-    "amount": 16666,
-    "interest": 833,
-    "totalAmount": 17500,
-    "dueDate": "iso-date",
-    "status": "Paid|Upcoming|Overdue|Pending"
-  }
-]
-```
+Every repayment pays exactly one fixed installment; the amount always comes from the server.
 
-**Note**: the current frontend only _displays_ a computed schedule (derived client-side from the
-now-real `amount`/`numberOfRepayments`/`totalRepayment`/`date`/`status`/`repaymentsMade` fields
-via `generateRepaymentSchedule` in `loans-data.ts`) and never records an actual repayment —
-there's no "make a repayment" action anywhere in the UI today. Flagging this as a real gap:
-decide with product whether repayments are auto-deducted (wallet), manually recorded by admin,
-or out of scope for this phase, then add a `POST /loans/:id/repayments` endpoint accordingly.
+| Endpoint | Who | What |
+|---|---|---|
+| `GET /cooperatives/:id/loans/:loanId/repayments/next` | borrower, staff | `{ "installmentNumber": 2, "amount": 3500 }` |
+| `POST .../repayments/initialize` | borrower | `{ "reference": "LNRPY-…", "installmentNumber": 2, "amount": 3500, "gateway": "Paystack\|Flutterwave", "publicKey": "string" }` — same gateway rule as savings deposits |
+| `POST .../repayments/confirm` `{ "reference" }` | borrower | verifies with the gateway, records it → `{ "repayment": {…}, "loan": {…} }` |
+| `POST .../repayments/manual` | admin / co-op staff | records the next installment as paid offline (`Manual Upload`) |
+| `GET .../repayments` | borrower, staff | `[{ "id", "loanId", "installmentNumber", "amount", "method", "transactionId", "date", "status" }]` |
+
+The final installment moves the loan to `Completed`. The repayment *schedule* isn't an endpoint —
+clients derive it from the loan's `amount`/`numberOfRepayments`/`totalRepayment`/`date`/
+`repaymentsMade` (`generateRepaymentSchedule` in the web app's `loans-data.ts`).
 
 ---
 

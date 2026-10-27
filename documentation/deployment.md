@@ -23,14 +23,14 @@ What happens:
 
 Confirm it's up: `curl http://localhost:8080/api/health`
 
-Seeded demo accounts (see `V2__seed_demo_users.sql`) — same IDs as the
-frontend's mock users, password `admin123` for all three:
+Seeded demo accounts (`V2__seed_demo_users.sql`; V7 moved the admin onto the co-op's own
+ID), password `admin123` for all three:
 
 | ID | Role |
 |---|---|
 | `SA-0001` | super_admin |
-| `AD-0001` | admin |
-| `MB-0001` | member |
+| `COOP-0001` | admin of the demo co-op (a co-op's admin logs in with the co-op ID) |
+| `MB-0001` | member of `COOP-0001` |
 
 Tear down: `docker compose down` (add `-v` to also wipe the database).
 

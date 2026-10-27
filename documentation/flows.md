@@ -213,11 +213,9 @@ Key design points:
 
 `SavingsController` backs the "Savings & Contributions" tab on a co-op's detail page — the
 `/co-operatives/[id]/savings/...` routes — and `CooperativeController.members` backs that same
-page's Members tab (`GET /cooperatives/:id/members`). **Read-only, super-admin only**, and
-deliberately scoped that way: the flows that actually *create* a savings record (an admin's
-"Upload Teller", a member's real Paystack "+ New Savings") or edit a member's profile/status
-haven't been cut over from the frontend's mock `useCoopStore` to this backend yet — see
-`t-coop-app/documentation/savings-page.md`. These controllers only read whatever's already in
+page's Members tab (`GET /cooperatives/:id/members`). These are the **read** side; savings records
+are created by `SavingsSelfServiceController` (online deposit, "Upload Teller", withdrawals —
+see `api-contracts.md` §5). These controllers only read whatever's already in
 `members`/`savings_records`/`savings_types` — a member's id/name is joined into each savings row
 from the exact same `Member` rows the Members tab lists, so the two tabs can never disagree with
 each other or with the platform-wide `/savings` oversight page (both ultimately trace back to
