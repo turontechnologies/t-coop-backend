@@ -476,11 +476,9 @@ otherwise, checked in `PlatformSettingsController` the same way
 `AuditLogController` checks it — never just hidden in the UI). Each
 successful `PATCH` audit-logs `Settings` / `Update` / one of `Fees & Charges`
 / `Collections Account` / `Integrations`. The Integrations credentials are
-saved and returned as plain text (matching the frontend's prior in-memory
-mock behavior) but are never read by the live Paystack integration, which
-always uses the server's own `PAYSTACK_SECRET_KEY` environment variable —
-see the javadoc on `IntegrationSettingsUpdateRequest` before wiring these
-saved values into anything that actually moves money.
+saved and returned as plain text and are read live — subscription checkout,
+bank lookups, and co-op payments/payouts when a co-op has no gateway of its
+own (see `api-contracts.md` §13).
 
 ## Notifications and Notice Board flow (built 2026-08-24)
 

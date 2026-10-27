@@ -1,8 +1,8 @@
 # T-Coop API Contracts
 
-For the backend engineer. This app currently runs on frontend mock data — everything
-below is what the real API needs to provide instead. All endpoints except **Auth**
-require `Authorization: Bearer <token>`. Money amounts are in Naira (numbers, not kobo)
+The contract between `t-coop-backend` and its two clients (the `t-coop` web app and
+`t-coop-mobile`) — the single maintained copy. Sections marked **built** are live. All
+endpoints except **Auth** (and the public invite links) require `Authorization: Bearer <token>`. Money amounts are in Naira (numbers, not kobo)
 unless noted. Dates are ISO 8601 strings.
 
 Three roles: `super_admin` (oversees all co-ops), `admin` (manages one co-op), `member`
@@ -41,7 +41,7 @@ gets the generic message and can't be used to fish for which accounts are disabl
 { "message": "OTP sent" }
 ```
 
-Sends the OTP by email/SMS server-side. **Do not return the OTP in the response** (the current mock does this — it's a known gap to close).
+Sends the OTP by email server-side. The OTP is never returned in the response.
 
 ### `POST /auth/verify-otp`
 
