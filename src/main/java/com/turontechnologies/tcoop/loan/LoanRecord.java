@@ -71,6 +71,12 @@ public class LoanRecord {
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
+  /** "TimesTwo" (up to half the member's savings, guarantor required) or "Within" (up to their
+   * savings, no guarantor; the payout comes out of their savings and repaid principal goes back
+   * in) — see LoanEligibility. */
+  @Column(name = "loan_mode")
+  private String loanMode;
+
   /** The Paystack transfer that paid this loan out, set when the Secretary's approval disburses
    * it (see LoanSelfServiceController.decide). */
   @Column(name = "disbursement_reference")
@@ -102,7 +108,8 @@ public class LoanRecord {
       BigDecimal totalRepayment,
       String guarantorId,
       String guarantorName,
-      String status) {
+      String status,
+      String loanMode) {
     this.id = UUID.randomUUID();
     this.cooperativeId = cooperativeId;
     this.memberId = memberId;
@@ -118,6 +125,7 @@ public class LoanRecord {
     this.loanDate = LocalDate.now();
     this.status = status;
     this.repaymentsMade = 0;
+    this.loanMode = loanMode;
     this.createdAt = LocalDateTime.now();
   }
 
@@ -146,6 +154,14 @@ public class LoanRecord {
     this.disbursementStatus = transferStatus;
     this.disbursedAmount = netAmount;
     this.disbursedAt = LocalDateTime.now();
+  }
+
+  public String getLoanMode() {
+    return loanMode;
+  }
+
+  public boolean isWithin() {
+    return LoanEligibility.WITHIN.equals(loanMode);
   }
 
   public String getDisbursementReference() {

@@ -93,7 +93,7 @@ public class LoanController {
         new LoanType(
             id,
             request.name(),
-            request.eligibilityPercent(),
+            request.eligibilityPercentOrDefault(),
             request.durationMonths(),
             request.maxAmount(),
             request.repaymentInterval(),
@@ -124,7 +124,7 @@ public class LoanController {
     }
     type.update(
         request.name(),
-        request.eligibilityPercent(),
+        request.eligibilityPercentOrDefault(),
         request.durationMonths(),
         request.maxAmount(),
         request.repaymentInterval(),

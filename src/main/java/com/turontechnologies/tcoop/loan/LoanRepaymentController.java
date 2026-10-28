@@ -5,6 +5,8 @@ import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import com.turontechnologies.tcoop.savings.SavingsRecord;
+import com.turontechnologies.tcoop.savings.SavingsRecordRepository;
 import com.turontechnologies.tcoop.subscription.PaymentGatewayService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -38,6 +40,7 @@ public class LoanRepaymentController {
   private final LoanRecordRepository loanRecordRepository;
   private final LoanPaymentIntentRepository intentRepository;
   private final LoanRepaymentRepository loanRepaymentRepository;
+  private final SavingsRecordRepository savingsRecordRepository;
   private final CoopGatewayResolver gatewayResolver;
   private final AuditLogService auditLogService;
 
@@ -48,6 +51,7 @@ public class LoanRepaymentController {
       LoanRecordRepository loanRecordRepository,
       LoanPaymentIntentRepository intentRepository,
       LoanRepaymentRepository loanRepaymentRepository,
+      SavingsRecordRepository savingsRecordRepository,
       CoopGatewayResolver gatewayResolver,
       AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
@@ -56,6 +60,7 @@ public class LoanRepaymentController {
     this.loanRecordRepository = loanRecordRepository;
     this.intentRepository = intentRepository;
     this.loanRepaymentRepository = loanRepaymentRepository;
+    this.savingsRecordRepository = savingsRecordRepository;
     this.gatewayResolver = gatewayResolver;
     this.auditLogService = auditLogService;
   }
@@ -227,7 +232,26 @@ public class LoanRepaymentController {
       loan.setStatus("Completed");
     }
     loanRecordRepository.save(loan);
+
+    if (loan.isWithin()) {
+      // A Within loan was borrowed from the member's own savings — the principal part of each
+      // installment goes back into them; the interest part is the co-op's income.
+      BigDecimal principal = principalOfInstallment(loan, installmentNumber);
+      BigDecimal balanceAfter = savingsRecordRepository.sumByMember(memberId).add(principal);
+      savingsRecordRepository.save(
+          new SavingsRecord(
+              cooperativeId, memberId, null, principal, balanceAfter, "Loan Repayment", transactionId, "Success", null));
+    }
     return repayment;
+  }
+
+  /** The principal share of one installment: an even split, with the final installment taking
+   * whatever rounding left over so the principal returned to savings adds up exactly. */
+  private static BigDecimal principalOfInstallment(LoanRecord loan, int installmentNumber) {
+    BigDecimal perInstallment =
+        loan.getAmount().divide(BigDecimal.valueOf(loan.getNumberOfRepayments()), 2, RoundingMode.DOWN);
+    if (installmentNumber < loan.getNumberOfRepayments()) return perInstallment;
+    return loan.getAmount().subtract(perInstallment.multiply(BigDecimal.valueOf(loan.getNumberOfRepayments() - 1)));
   }
 
   private LoanRepaymentResultDto toResult(LoanRepayment repayment, LoanRecord loan) {

@@ -8,6 +8,7 @@ import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.notification.NotificationService;
+import com.turontechnologies.tcoop.savings.SavingsRecord;
 import com.turontechnologies.tcoop.savings.SavingsRecordRepository;
 import com.turontechnologies.tcoop.settings.PlatformSettings;
 import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
@@ -129,33 +130,52 @@ public class LoanSelfServiceController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan type"));
     }
 
-    Member guarantor = memberRepository.findById(request.guarantorMemberId()).orElse(null);
-    if (guarantor == null || !id.equals(guarantor.getCooperativeId())) {
-      return ResponseEntity.status(400)
-          .body(Map.of("error", "Your guarantor must be a member of this co-operative"));
+    String mode = request.loanMode() == null || request.loanMode().isBlank()
+        ? LoanEligibility.TIMES_TWO
+        : request.loanMode();
+    if (!LoanEligibility.isValidMode(mode)) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Choose \"Times two\" or \"Within\""));
     }
-    if (!"Active".equals(guarantor.getStatus())) {
-      return ResponseEntity.status(400)
-          .body(Map.of("error", guarantor.getFullName() + " isn't an active member, so they can't guarantee a loan"));
-    }
-    if (guarantor.getId().equals(member.getId())) {
-      return ResponseEntity.status(409).body(Map.of("error", "You can't guarantee your own loan"));
+    boolean within = LoanEligibility.WITHIN.equals(mode);
+
+    // A Within loan is secured by the member's own savings, so it has no guarantor.
+    Member guarantor = null;
+    if (!within) {
+      if (!notBlank(request.guarantorMemberId())) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Select a guarantor"));
+      }
+      guarantor = memberRepository.findById(request.guarantorMemberId()).orElse(null);
+      if (guarantor == null || !id.equals(guarantor.getCooperativeId())) {
+        return ResponseEntity.status(400)
+            .body(Map.of("error", "Your guarantor must be a member of this co-operative"));
+      }
+      if (!"Active".equals(guarantor.getStatus())) {
+        return ResponseEntity.status(400)
+            .body(Map.of("error", guarantor.getFullName() + " isn't an active member, so they can't guarantee a loan"));
+      }
+      if (guarantor.getId().equals(member.getId())) {
+        return ResponseEntity.status(409).body(Map.of("error", "You can't guarantee your own loan"));
+      }
     }
 
     BigDecimal totalSavings = savingsRecordRepository.sumByMember(member.getId());
-    BigDecimal eligibility = LoanEligibility.forType(totalSavings, type);
+    BigDecimal eligibility = LoanEligibility.forMode(totalSavings, type, mode);
     if (request.amount().compareTo(eligibility) > 0) {
       return ResponseEntity.status(409)
-          .body(Map.of("error", "That amount exceeds your loan eligibility for this type"));
+          .body(
+              Map.of(
+                  "error",
+                  within
+                      ? "A Within loan can't be more than your savings (or this loan type's maximum)"
+                      : "A Times two loan can't be more than half your savings (or this loan type's maximum)"));
     }
 
-    // Interest is always applied as a flat percentage of principal regardless of interestType —
-    // same simplification the frontend's own loan calculator has always used (see
-    // activeLoanTypeDefs' javadoc in admin-settings-data.ts): a "Fixed" type still only carries a
-    // percentage-shaped number in interestAmount, so there's nothing else to branch on here.
-    BigDecimal interestRate = type.getInterestAmount();
-    BigDecimal totalInterest =
-        request.amount().multiply(interestRate).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+    // Interest follows the loan type — a percentage of the amount, a fixed amount, or none for a
+    // "NoInterest" type. The record keeps the effective percentage so "x% flat" displays stay
+    // right for a fixed-amount type too.
+    BigDecimal totalInterest = LoanEligibility.totalInterest(type, request.amount());
+    BigDecimal interestRate =
+        totalInterest.multiply(BigDecimal.valueOf(100)).divide(request.amount(), 2, RoundingMode.HALF_UP);
     BigDecimal totalRepayment = request.amount().add(totalInterest);
     int numberOfRepayments = type.getDurationMonths();
     BigDecimal monthlyRepayment =
@@ -172,17 +192,22 @@ public class LoanSelfServiceController {
             numberOfRepayments,
             monthlyRepayment,
             totalRepayment,
-            guarantor.getId(),
-            guarantor.getFullName(),
-            AWAITING_GUARANTOR);
+            guarantor != null ? guarantor.getId() : null,
+            guarantor != null ? guarantor.getFullName() : null,
+            within ? statusFor(CHAIN.get(0)) : AWAITING_GUARANTOR,
+            mode);
     loanRecordRepository.save(record);
 
-    notificationService.notify(
-        guarantor.getId(),
-        "LOAN_GUARANTOR_REQUEST",
-        "You've been asked to guarantee a loan",
-        member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
-        "/loans/" + record.getId());
+    if (within) {
+      notifyApprover(record, CHAIN.get(0), member.getFullName(), type.getName());
+    } else {
+      notificationService.notify(
+          guarantor.getId(),
+          "LOAN_GUARANTOR_REQUEST",
+          "You've been asked to guarantee a loan",
+          member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
+          "/loans/" + record.getId());
+    }
 
     auditLogService.log(
         member.getId(), member.getRole(), "Loans", "Create", type.getName(), "Success", httpRequest);
@@ -379,6 +404,12 @@ public class LoanSelfServiceController {
     if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
+    // A Within loan comes out of the member's savings — they may have withdrawn since applying.
+    if (record.isWithin()
+        && savingsRecordRepository.sumByMember(record.getMemberId()).compareTo(record.getAmount()) < 0) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", applicantName + "'s savings no longer cover this Within loan, so it can't be paid out."));
+    }
     BigDecimal net = record.getAmount().subtract(loansChargeFor(coop, platformSettings(), record.getAmount()));
     String reference = "loan-" + record.getId().toString().toLowerCase();
 
@@ -400,6 +431,23 @@ public class LoanSelfServiceController {
     record.setStatus("Active");
     loanRecordRepository.save(record);
     saveDecision(record, authority, caller, "Approved", null);
+
+    if (record.isWithin()) {
+      // The loan is borrowed from the member's own savings — take the principal out of them.
+      BigDecimal balanceAfter =
+          savingsRecordRepository.sumByMember(record.getMemberId()).subtract(record.getAmount());
+      savingsRecordRepository.save(
+          new SavingsRecord(
+              id,
+              record.getMemberId(),
+              null,
+              record.getAmount().negate(),
+              balanceAfter,
+              "Loan Disbursement",
+              reference,
+              "Success",
+              null));
+    }
 
     notificationService.notify(
         applicant.getId(),

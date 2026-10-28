@@ -1,8 +1,7 @@
 package com.turontechnologies.tcoop.coopgateway;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
-import com.turontechnologies.tcoop.coopstaff.CoopRole;
-import com.turontechnologies.tcoop.coopstaff.CoopRoleRepository;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
@@ -31,19 +30,19 @@ public class CoopIntegrationsController {
   private static final String TAB = "Integrations";
 
   private final MemberRepository memberRepository;
-  private final CoopRoleRepository coopRoleRepository;
+  private final CoopPermissions coopPermissions;
   private final CooperativeRepository cooperativeRepository;
   private final CooperativePaymentGatewayRepository gatewayRepository;
   private final AuditLogService auditLogService;
 
   public CoopIntegrationsController(
       MemberRepository memberRepository,
-      CoopRoleRepository coopRoleRepository,
+      CoopPermissions coopPermissions,
       CooperativeRepository cooperativeRepository,
       CooperativePaymentGatewayRepository gatewayRepository,
       AuditLogService auditLogService) {
     this.memberRepository = memberRepository;
-    this.coopRoleRepository = coopRoleRepository;
+    this.coopPermissions = coopPermissions;
     this.cooperativeRepository = cooperativeRepository;
     this.gatewayRepository = gatewayRepository;
     this.auditLogService = auditLogService;
@@ -142,44 +141,10 @@ public class CoopIntegrationsController {
     if (caller == null) {
       return new Access(null, ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
     }
-    if (!cooperativeId.equals(caller.getCooperativeId())) {
-      return forbidden();
-    }
-    if ("admin".equals(caller.getRole())) {
-      return new Access(caller, null);
-    }
-    if (caller.getCoopRoleId() == null) {
-      return forbidden();
-    }
-    CoopRole role = coopRoleRepository.findById(caller.getCoopRoleId()).orElse(null);
-    if (role == null
-        || !"Active".equals(role.getStatus())
-        || !cooperativeId.equals(role.getCooperativeId())) {
-      return forbidden();
-    }
-    String granted = grantedAccess(role);
-    if (granted == null || (write && !"write".equals(granted))) {
+    if (!coopPermissions.allows(caller, cooperativeId, MODULE, TAB, write)) {
       return forbidden();
     }
     return new Access(caller, null);
-  }
-
-  /** Same grant encoding as the frontend's lib/permissions.ts: "Settings" (legacy, write),
-   * "Settings::<access>" for the whole module, "Settings::Integrations::<access>" for this tab. */
-  private static String grantedAccess(CoopRole role) {
-    String best = null;
-    for (String raw : role.getPermissions()) {
-      String[] parts = raw.split("::");
-      if (!MODULE.equals(parts[0])) continue;
-      String access;
-      if (parts.length == 1) access = "write";
-      else if (parts.length == 2) access = parts[1];
-      else if (TAB.equals(parts[1])) access = parts[2];
-      else continue;
-      if ("write".equals(access)) return "write";
-      best = "read";
-    }
-    return best;
   }
 
   private static Access forbidden() {

@@ -11,6 +11,8 @@ public interface LoanRepaymentRepository extends JpaRepository<LoanRepayment, UU
 
   List<LoanRepayment> findAllByLoanIdOrderByCreatedAtDesc(UUID loanId);
 
+  List<LoanRepayment> findAllByCooperativeIdOrderByCreatedAtAsc(String cooperativeId);
+
   int countByLoanId(UUID loanId);
 
   @Query("select coalesce(sum(r.amount), 0) from LoanRepayment r where r.loanId = :loanId")

@@ -46,7 +46,8 @@ public class CoopOffices {
           "Savings & Contributions::My Savings::write",
           "Notice Board::read",
           "Support::write",
-          "Settings::Profile::write");
+          "Settings::Profile::write",
+          "Reports::read");
 
   private final CoopRoleRepository coopRoleRepository;
   private final MemberRepository memberRepository;

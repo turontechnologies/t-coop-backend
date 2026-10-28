@@ -221,7 +221,7 @@ public class SavingsController {
                     SavingsRecordDto.from(
                         record,
                         memberNames.getOrDefault(record.getMemberId(), "Unknown member"),
-                        typeNames.getOrDefault(record.getSavingsTypeId(), "Unknown type")))
+                        typeLabel(record, typeNames.get(record.getSavingsTypeId()))))
             .toList();
     return ResponseEntity.ok(dtos);
   }
@@ -250,12 +250,24 @@ public class SavingsController {
     }
 
     Member member = memberRepository.findById(record.getMemberId()).orElse(null);
-    SavingsType type = savingsTypeRepository.findById(record.getSavingsTypeId()).orElse(null);
+    SavingsType type =
+        record.getSavingsTypeId() == null ? null : savingsTypeRepository.findById(record.getSavingsTypeId()).orElse(null);
     return ResponseEntity.ok(
         SavingsRecordDto.from(
             record,
             member != null ? member.getFullName() : "Unknown member",
-            type != null ? type.getName() : "Unknown type"));
+            typeLabel(record, type != null ? type.getName() : null)));
+  }
+
+  /** A record with no savings type is a "Total Savings" withdrawal or a Within-loan entry. */
+  private static String typeLabel(SavingsRecord record, String typeName) {
+    if (typeName != null) return typeName;
+    if (record.getSavingsTypeId() != null) return "Unknown type";
+    return switch (record.getMethod()) {
+      case "Loan Disbursement" -> "Within loan (paid out)";
+      case "Loan Repayment" -> "Within loan (repaid)";
+      default -> "Total Savings";
+    };
   }
 
   private SavingsRecord findRecord(String id) {

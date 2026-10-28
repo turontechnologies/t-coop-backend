@@ -5,6 +5,7 @@ import com.cloudinary.utils.ObjectUtils;
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.coopstaff.CoopOffices;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
+import com.turontechnologies.tcoop.loan.LoanType;
 import com.turontechnologies.tcoop.loan.LoanTypeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberGuarantorDto;
@@ -18,6 +19,7 @@ import com.turontechnologies.tcoop.notification.NotificationService;
 import com.turontechnologies.tcoop.settings.PlatformSettings;
 import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import java.math.BigDecimal;
 import jakarta.validation.Valid;
 import java.util.Comparator;
 import java.util.List;
@@ -554,6 +556,19 @@ public class CooperativeController {
             request.currency());
     cooperativeRepository.save(coop);
     coopOffices.ensureOfficeRoles(coop.getId());
+    // Every co-op starts with a Household Loan its admin can edit or disable (V41 added it to
+    // co-ops that already existed). Same defaults as V41.
+    loanTypeRepository.save(
+        new LoanType(
+            coop.getId(),
+            "Household Loan",
+            BigDecimal.valueOf(100),
+            12,
+            BigDecimal.valueOf(300000),
+            "Monthly",
+            12,
+            "Percentage",
+            BigDecimal.valueOf(5)));
 
     // The co-op IS the admin account — it logs in with its own co-op ID, not a separately
     // generated one, so that "how many co-ops has super admin onboarded" and "how many admins

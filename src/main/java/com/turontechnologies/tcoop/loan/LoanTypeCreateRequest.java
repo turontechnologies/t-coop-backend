@@ -12,8 +12,9 @@ import java.math.BigDecimal;
  * normalizes a null amount to {@link BigDecimal#ZERO} either way. */
 public record LoanTypeCreateRequest(
     @NotBlank(message = "Enter a loan type name") String name,
-    @NotNull(message = "Enter an eligibility percentage") @Positive(message = "Enter an eligibility percentage")
-        BigDecimal eligibilityPercent,
+    /** No longer decides how much can be borrowed — the loan mode does (see LoanEligibility).
+     * Optional; kept only so older clients that still send it keep working. */
+    @Positive(message = "Enter an eligibility percentage") BigDecimal eligibilityPercent,
     @Positive(message = "Select a duration") int durationMonths,
     @NotNull(message = "Enter a maximum loan amount") @Positive(message = "Enter a maximum loan amount")
         BigDecimal maxAmount,
@@ -22,4 +23,9 @@ public record LoanTypeCreateRequest(
     @NotBlank(message = "Select an interest type")
         @Pattern(regexp = "Percentage|Fixed|NoInterest", message = "Select a valid interest type")
         String interestType,
-    @PositiveOrZero(message = "Enter an interest amount of 0 or more") BigDecimal interestAmount) {}
+    @PositiveOrZero(message = "Enter an interest amount of 0 or more") BigDecimal interestAmount) {
+
+  public BigDecimal eligibilityPercentOrDefault() {
+    return eligibilityPercent != null ? eligibilityPercent : BigDecimal.valueOf(100);
+  }
+}

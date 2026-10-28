@@ -253,15 +253,14 @@ public class DashboardService {
         return total;
     }
 
-    /** Best case across this co-op's own active loan types — mirrors the frontend's existing
-     * computeEligibleAmount (src/lib/loans-data.ts) exactly, including its ₦10,000 floor, now
-     * computed here off the member's real total savings instead of client-side. No active loan
-     * types at all (not "no savings") is the only case that yields 0. */
+    /** Best case across this co-op's own active loan types — the most the member could borrow
+     * in any mode (a "Within" loan, up to their savings, capped by the type's maximum). See
+     * LoanEligibility. */
     private BigDecimal maxLoanEligibility(BigDecimal totalSavings, List<LoanType> loanTypes) {
         BigDecimal best = BigDecimal.ZERO;
         for (LoanType loanType : loanTypes) {
             if (!"Active".equals(loanType.getStatus())) continue;
-            best = best.max(LoanEligibility.forType(totalSavings, loanType));
+            best = best.max(LoanEligibility.best(totalSavings, loanType));
         }
         return best;
     }
