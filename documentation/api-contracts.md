@@ -500,14 +500,15 @@ side to match the other without checking both `LoanType`/`LoanTypeCreateRequest`
 // POST/PATCH request
 {
   "name": "string",
-  "eligibilityPercent": 300,
   "durationMonths": 3,
   "maxAmount": 200000,
   "repaymentInterval": "Weekly|Monthly|Quarterly",
   "numberOfInstallments": 3,
-  "interestType": "Percentage|Fixed",
+  "interestType": "Percentage|Fixed|NoInterest",
   "interestAmount": 5
 }
+// interestAmount: a percentage for Percentage, a flat amount for Fixed, omitted for NoInterest.
+// eligibilityPercent is optional and no longer used — the loan mode sets the limit (below).
 // PATCH .../status request
 { "status": "Active|Inactive" }
 ```
@@ -535,23 +536,31 @@ a loan type's name, not id).
 
 Single record, same shape as one list item above.
 
-### `GET /loans/eligibility?memberId=&loanType=` — not yet built
+### Loan modes, limits and interest — **built** (`LoanEligibility`, V41)
 
-```json
-{ "eligibleAmount": 150000 }
-```
+Every application picks a **loan mode**:
 
-Computed as `min(maxAmount, totalSavings * eligibilityPercent / 100)`.
+| Mode | Limit | Guarantor | Savings |
+|---|---|---|---|
+| `TimesTwo` (default) | up to **half** the member's savings (savings must be at least twice the loan) | required | untouched |
+| `Within` | up to the member's savings | none — goes straight to the Vice President | the payout is deducted from savings (`method: Loan Disbursement`); each repayment's principal is credited back (`method: Loan Repayment`) |
+
+Both are capped by the loan type's `maxAmount` and go through the officer approval chain.
+**Every loan charges its loan type's interest** — `Percentage` (of the amount), `Fixed` (a flat
+amount), or none for `NoInterest`; the record's `interestRate` is the effective percentage. A
+Within loan is re-checked against the member's savings at payout. Every co-op has a
+**Household Loan** type (V41; 12 months, 5%, up to 300,000 — editable).
 
 ### `POST /cooperatives/:id/loans` (member requests a loan) — **built**
 
 ```json
 // Request
-{ "loanTypeId": "uuid", "amount": 50000, "guarantorMemberId": "string" }
-// Response — status starts "Awaiting Guarantor"
+{ "loanTypeId": "uuid", "amount": 50000, "loanMode": "TimesTwo|Within", "guarantorMemberId": "string?" }
+// Response — status "Awaiting Guarantor" (TimesTwo) or "Awaiting Vice President" (Within)
 ```
-Response shape matches the list item above. The guarantor must be an **active member of the
-same co-op** and not the applicant (`400` otherwise). This is the only place a guarantor is
+Response shape matches the list item above, plus `loanMode`. For `TimesTwo` the guarantor must
+be an **active member of the same co-op** and not the applicant (`400` otherwise); `409` when
+the amount is over the mode's limit. This is the only place a guarantor is
 named — adding a member needs none.
 
 ### `PATCH /cooperatives/:id/loans/:loanId/guarantor-response` — **built**
@@ -609,6 +618,34 @@ pay twice. Only if Paystack accepts the transfer (`success`/`pending`) does the 
 `Active`; otherwise nothing changes and the error is returned (`409` no bank account / no
 Paystack set up, `502` Paystack refused — including transfer-OTP being switched on). Every
 decision is stored in `loan_approvals`.
+
+### `GET /cooperatives/:id/members/:memberId/loan-history` — **built**
+
+A member's full borrowing record, for the officers reviewing a request (co-op staff) or the
+member themselves (`403` otherwise):
+
+```json
+{
+  "memberId": "MB-0003", "memberName": "string", "totalSavings": 598500,
+  "summary": {
+    "activeLoans": 1, "completedLoans": 2, "rejectedLoans": 0, "pendingLoans": 1,
+    "outstandingBalance": 96250, "totalBorrowed": 300000, "totalRepaid": 210000,
+    "repaymentsMade": 14, "onTimeRepayments": 12, "lateRepayments": 2, "onTimeRate": 86,
+    "overdueInstallments": 0, "lastRepaymentDate": "iso-date?"
+  },
+  "loans": [{
+    "id": "uuid", "loanType": "string", "loanMode": "TimesTwo|Within", "status": "string",
+    "amount": 100000, "totalRepayment": 105000, "repaid": 8750, "outstanding": 96250,
+    "numberOfRepayments": 12, "repaymentsMade": 1, "overdueInstallments": 0,
+    "appliedOn": "iso-date", "paidOutOn": "iso-date?", "nextDueDate": "iso-date?",
+    "repayments": [{ "installmentNumber": 1, "amount": 8750, "method": "string",
+                     "paidOn": "iso-date", "dueDate": "iso-date", "daysLate": 0 }]
+  }]
+}
+```
+
+Installments fall due monthly from the payout date (`LoanSchedule`); a repayment is on time if
+paid on or before its due date.
 
 ### Loan repayments — **built** (`LoanRepaymentController`)
 
@@ -830,6 +867,35 @@ fails or the gateway-reported amount is less than the intent's amount; `409` if 
 was already confirmed once.
 
 ---
+
+## 8c. Financial report — **built** (`FinancialReportController`, 2026-10-28)
+
+### `GET /cooperatives/:id/reports/financial?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Co-op admin, or co-op staff whose role grants **Reports** (officers get `Reports::read` by
+default — V41). `403` otherwise; `400` for a bad or reversed range. Defaults to 1 January → today.
+
+```json
+{
+  "cooperativeId": "string", "cooperativeName": "string", "currency": "NGN",
+  "from": "iso-date", "to": "iso-date", "generatedAt": "iso-datetime",
+  "savings": { "deposits": 0, "depositCount": 0, "withdrawals": 0, "withdrawalCount": 0,
+               "withinLoanDebits": 0, "withinLoanCredits": 0, "netChange": 0, "closingBalance": 0 },
+  "loans": { "applications": 0, "paidOut": 0, "principalPaidOut": 0, "netPaidOut": 0, "rejected": 0,
+             "repaymentsCollected": 0, "repaymentCount": 0, "activeLoans": 0,
+             "outstandingBalance": 0, "overdueLoans": 0, "overdueOutstanding": 0 },
+  "income": { "interestEarned": 0, "loanCharges": 0, "savingsCharges": 0, "withdrawalFees": 0, "total": 0 },
+  "monthly": [{ "month": "2026-10", "deposits": 0, "withdrawals": 0, "loansPaidOut": 0, "repayments": 0 }],
+  "byLoanType": [{ "loanType": "string", "loansPaidOut": 0, "principal": 0, "repaid": 0, "outstanding": 0 }],
+  "overdue": [{ "loanId": "uuid", "memberId": "string", "memberName": "string", "loanType": "string",
+                 "outstanding": 0, "overdueInstallments": 1, "oldestDueDate": "iso-date" }]
+}
+```
+
+Flows cover the range; `activeLoans`/`outstandingBalance`/overdue figures and `closingBalance`
+(as of `to`) are balances. Interest earned is each repayment's interest share
+((totalRepayment − amount) / totalRepayment). Savings charges come from online deposits
+(paid − credited); withdrawal fees from approved requests.
 
 ## 9. Dashboard summary
 

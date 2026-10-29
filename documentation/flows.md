@@ -302,7 +302,9 @@ moving a loan is the application/approval flow below.
 
 ## Loan application and approval flow
 
-`LoanSelfServiceController`. Officers are the co-op's four fixed office roles (`CoopOffices`);
+`LoanSelfServiceController`. A `Within` loan (borrowed from the member's own savings) skips the
+guarantor step and starts at Awaiting Vice President; on payout its principal is deducted from
+savings, and each repayment's principal is credited back. Officers are the co-op's four fixed office roles (`CoopOffices`);
 a vacant office — or one held by the loan's borrower/guarantor — is covered by the co-op admin.
 The President can reject (not approve) at any open stage.
 

@@ -155,7 +155,13 @@ step). The repayment schedule is **computed**, not stored —
 it; each actual payment is a `loan_repayments` row (V35). The
 `disbursement_*` / `disbursed_*` columns (V40) record the Paystack transfer
 that paid the loan out when the Secretary approved it — `disbursed_amount`
-is principal minus loan charges.
+is principal minus loan charges. `loan_mode` (V41) is `TimesTwo` (up to half the member's savings,
+guarantor required) or `Within` (up to their savings, no guarantor — `guarantor_name` is null).
+
+### `savings_records` — ledger entries without a savings type (V41)
+`savings_type_id` is nullable: a "Total Savings" withdrawal, or a Within loan's ledger entries
+(`method` `Loan Disbursement`, negative, when it's paid out; `Loan Repayment`, positive, the
+principal part of each installment). The sum of a member's rows is always their savings.
 
 ### `loan_approvals` (V40)
 The loan's approval trail — one row per officer decision: which office it
