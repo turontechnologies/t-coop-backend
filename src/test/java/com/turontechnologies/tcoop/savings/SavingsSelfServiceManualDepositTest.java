@@ -39,7 +39,6 @@ class SavingsSelfServiceManualDepositTest {
     when(memberRepository.findById("COOP-0002")).thenReturn(Optional.of(admin));
     when(admin.getRole()).thenReturn("admin");
     when(admin.getCooperativeId()).thenReturn(cooperativeId);
-    when(memberRepository.findById("COOP-0002")).thenReturn(Optional.of(admin));
     when(memberRepository.findById("MB-0001")).thenReturn(Optional.of(target));
     when(target.getCooperativeId()).thenReturn(cooperativeId);
     when(savingsTypeRepository.findById(savingsTypeId)).thenReturn(Optional.of(inactiveType));
