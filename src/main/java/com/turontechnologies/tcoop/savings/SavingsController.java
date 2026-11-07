@@ -53,19 +53,26 @@ public class SavingsController {
     this.auditLogService = auditLogService;
   }
 
-  /** The "Members Savings" breakdown table — one row per savings type, with its live total.
-   * A super admin sees any co-op's; an admin only their own (this also backs their Savings
-   * Settings tab, so it can't stay super-admin-only). */
+  /** One row per savings type, for the member-facing deposit picker and co-op oversight. */
   @GetMapping("/api/v1/cooperatives/{id}/savings/types")
   public ResponseEntity<?> types(Authentication authentication, @PathVariable String id) {
-    var access = requireCoopAccess(authentication, id);
+    var access = requireTypeListAccess(authentication, id);
     if (access.error() != null) return access.error();
-    if (!cooperativeRepository.existsById(id)) {
+    String cooperativeId = access.cooperativeId();
+    if (!cooperativeRepository.existsById(cooperativeId)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
 
-    List<SavingsType> types = savingsTypeRepository.findAllByCooperativeIdOrderByCreatedAtAsc(id);
-    List<SavingsRecord> records = savingsRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(id);
+    boolean isStaff =
+        "admin".equals(access.caller().getRole())
+            || "super_admin".equals(access.caller().getRole())
+            || access.caller().getCoopRoleId() != null;
+    List<SavingsType> types =
+        savingsTypeRepository.findAllByCooperativeIdOrderByCreatedAtAsc(cooperativeId);
+    List<SavingsRecord> records =
+        isStaff
+            ? savingsRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(cooperativeId)
+            : List.of();
 
     Map<UUID, BigDecimal> totalsByType = new HashMap<>();
     for (SavingsRecord record : records) {
@@ -75,7 +82,14 @@ public class SavingsController {
 
     List<SavingsTypeSummaryDto> dtos =
         types.stream()
-            .map(type -> SavingsTypeSummaryDto.from(type, totalsByType.getOrDefault(type.getId(), BigDecimal.ZERO)))
+            .filter(type -> isStaff || "Active".equals(type.getStatus()))
+            .map(
+                type ->
+                    SavingsTypeSummaryDto.from(
+                        type,
+                        isStaff
+                            ? totalsByType.getOrDefault(type.getId(), BigDecimal.ZERO)
+                            : BigDecimal.ZERO))
             .toList();
     return ResponseEntity.ok(dtos);
   }
@@ -308,6 +322,48 @@ public class SavingsController {
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  private record TypeListAccess(
+      Member caller, String cooperativeId, ResponseEntity<?> error) {}
+
+  /** Type pickers are always scoped to the signed-in member's co-op. A plain member cannot
+   * choose a tenant by changing the path ID; co-op staff must still name their own co-op, and
+   * super admins retain platform-wide read access. */
+  private TypeListAccess requireTypeListAccess(
+      Authentication authentication, String requestedCooperativeId) {
+    String callerId = (String) authentication.getPrincipal();
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
+      return new TypeListAccess(
+          null,
+          null,
+          ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
+    }
+
+    if ("super_admin".equals(caller.getRole())) {
+      return new TypeListAccess(caller, requestedCooperativeId, null);
+    }
+
+    String callerCooperativeId = caller.getCooperativeId();
+    if (callerCooperativeId == null || callerCooperativeId.isBlank()) {
+      return new TypeListAccess(
+          null,
+          null,
+          ResponseEntity.status(403)
+              .body(Map.of("error", "Your account isn't associated with a co-operative")));
+    }
+
+    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    if (isCoopStaff && !requestedCooperativeId.equals(callerCooperativeId)) {
+      return new TypeListAccess(
+          null,
+          null,
+          ResponseEntity.status(403)
+              .body(Map.of("error", "You can only view your own co-operative's savings")));
+    }
+
+    return new TypeListAccess(caller, callerCooperativeId, null);
+  }
 
   /** Any member of this co-op, including a plain member listing/viewing only their own savings
    * history — see {@code records()}/{@code record()}'s own javadoc for how self-service callers

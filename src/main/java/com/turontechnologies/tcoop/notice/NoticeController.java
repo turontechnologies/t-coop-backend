@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -132,11 +133,33 @@ public class NoticeController {
       targetCoopIds = Set.of(caller.getCooperativeId());
     }
 
-    LocalDate meetingDate =
-        request.meetingDate() == null || request.meetingDate().isBlank()
-            ? null
-            : LocalDate.parse(request.meetingDate());
-    LocalDateTime sendAt = OffsetDateTime.parse(request.sendAt()).withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime();
+    // meetingDate is a calendar day (yyyy-MM-dd). A full timestamp is cut to its date part rather
+    // than rejected; anything unparseable is a 400 the form can show, not a 500.
+    LocalDate meetingDate = null;
+    if ("Meeting Notice".equals(request.type())
+        && request.meetingDate() != null
+        && !request.meetingDate().isBlank()) {
+      String raw = request.meetingDate().trim();
+      int t = raw.indexOf('T');
+      try {
+        meetingDate = LocalDate.parse(t > 0 ? raw.substring(0, t) : raw);
+      } catch (DateTimeParseException e) {
+        return ResponseEntity.badRequest()
+            .body(Map.of("error", "Enter the meeting date as YYYY-MM-DD"));
+      }
+    }
+    if ("Meeting Notice".equals(request.type()) && meetingDate == null) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Enter the meeting date"));
+    }
+    LocalDateTime sendAt;
+    try {
+      sendAt =
+          OffsetDateTime.parse(request.sendAt())
+              .withOffsetSameInstant(ZoneOffset.UTC)
+              .toLocalDateTime();
+    } catch (DateTimeParseException | NullPointerException e) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Pick a valid send date and time"));
+    }
 
     Notice notice =
         new Notice(

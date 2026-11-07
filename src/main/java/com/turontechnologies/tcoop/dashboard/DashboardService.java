@@ -109,7 +109,7 @@ public class DashboardService {
                 false);
 
         List<ActivityPointDto> chart = buildChart(totalSavings, totalLoans, BigDecimal.ZERO);
-        return new DashboardSummaryDto(cards, chart, recentActivity);
+        return new DashboardSummaryDto(cards, chart, recentActivity, List.of());
     }
 
     private DashboardSummaryDto cooperativeSummary(String cooperativeId, String prefix) {
@@ -146,7 +146,7 @@ public class DashboardService {
                 true);
 
         List<ActivityPointDto> chart = buildChart(totalSavings, totalLoans, dividends);
-        return new DashboardSummaryDto(cards, chart, recentActivity);
+        return new DashboardSummaryDto(cards, chart, recentActivity, List.of());
     }
 
     private DashboardSummaryDto memberSummary(String cooperativeId, String memberId, String prefix) {
@@ -155,7 +155,24 @@ public class DashboardService {
         BigDecimal dividends = totalSavings.multiply(DIVIDEND_RATE).setScale(2, RoundingMode.HALF_UP);
 
         List<LoanType> loanTypes = loanTypeRepository.findAllByCooperativeId(cooperativeId);
-        BigDecimal loanEligibility = maxLoanEligibility(totalSavings, loanTypes);
+        List<LoanTypeEligibilityDto> loanEligibilityByType =
+                loanTypes.stream()
+                        .filter(loanType -> "Active".equals(loanType.getStatus()))
+                        .map(
+                                loanType ->
+                                        new LoanTypeEligibilityDto(
+                                                loanType.getId().toString(),
+                                                loanType.getName(),
+                                                LoanEligibility.forMode(
+                                                        totalSavings, loanType, LoanEligibility.TIMES_TWO),
+                                                LoanEligibility.forMode(
+                                                        totalSavings, loanType, LoanEligibility.WITHIN)))
+                        .toList();
+        BigDecimal loanEligibility =
+                loanEligibilityByType.stream()
+                        .map(eligibility -> eligibility.within())
+                        .max(BigDecimal::compareTo)
+                        .orElse(BigDecimal.ZERO);
 
         List<SummaryCardDto> cards = List.of(
                 new SummaryCardDto(prefix + " Savings", totalSavings),
@@ -182,7 +199,7 @@ public class DashboardService {
                 true);
 
         List<ActivityPointDto> chart = buildChart(totalSavings, totalLoans, dividends);
-        return new DashboardSummaryDto(cards, chart, recentActivity);
+        return new DashboardSummaryDto(cards, chart, recentActivity, loanEligibilityByType);
     }
 
     private List<RecentActivityDto> mergeRecentActivity(
@@ -253,15 +270,4 @@ public class DashboardService {
         return total;
     }
 
-    /** Best case across this co-op's own active loan types — the most the member could borrow
-     * in any mode (a "Within" loan, up to their savings, capped by the type's maximum). See
-     * LoanEligibility. */
-    private BigDecimal maxLoanEligibility(BigDecimal totalSavings, List<LoanType> loanTypes) {
-        BigDecimal best = BigDecimal.ZERO;
-        for (LoanType loanType : loanTypes) {
-            if (!"Active".equals(loanType.getStatus())) continue;
-            best = best.max(LoanEligibility.best(totalSavings, loanType));
-        }
-        return best;
-    }
 }

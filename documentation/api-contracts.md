@@ -333,8 +333,12 @@ serves deposits, "Upload Teller", and withdrawal requests/decisions.
 
 The "Members Savings" breakdown table. One row per savings product the co-op actually offers —
 no auto-seed, no invented defaults; a newly onboarded co-op legitimately returns `[]` here until
-someone deliberately configures a type (no management UI yet — the row shape supports it, this
-is purely a future task).
+someone deliberately configures a type. Any member of the co-op can read active types for the
+deposit picker; only co-op staff can create, edit, or disable types. Aggregate `earnings` and
+`total` values are returned only to staff; they are zero for regular members. For a regular
+member, the authenticated account's cooperative association is authoritative; the path ID cannot
+select another cooperative's types. Co-op staff must request their own cooperative, while super
+admins may request any cooperative.
 
 ```json
 [
@@ -460,7 +464,13 @@ officer approval chain; `LoanRepaymentController` repayments.
 
 ### `GET /cooperatives/:id/loans/types` — **built**
 
-The "Loans" breakdown table. Unlike savings types, loan types for real co-ops *are* seeded —
+The member-facing loan application picker and the "Loans" breakdown table. Any member of the
+co-op can read active types; only co-op staff can create, edit, or disable types. `earnings` is
+returned only to staff and is zero for regular members. A regular member's authenticated
+cooperative association is authoritative; the path ID cannot select another cooperative's types.
+Co-op staff must request their own cooperative, while super admins may request any cooperative.
+Unlike savings types, loan types for
+real co-ops *are* seeded —
 `V17__seed_loan_types.sql` gave every co-op the same three products (Emergency/Education/
 Business Loan) as a deliberate one-time backfill, not an auto-seed-on-create hook (no new co-op
 gets these automatically going forward — see the migration's own note for why that split exists).
@@ -907,9 +917,14 @@ Role-aware; scope to the caller's co-op for `admin`/`member`, platform-wide for 
 {
   "cards": [{ "label": "Total Savings", "value": 209000000 }, ...],
   "chart": [{ "hour": "9am", "savings": 12000, "loans": 4000, "dividends": 800 }, ...],
-  "recentActivity": [{ "title": "string", "subtitle": "string", "amount": 90000, "date": "iso-datetime", "status": "string?" }]
+  "recentActivity": [{ "title": "string", "subtitle": "string", "amount": 90000, "date": "iso-datetime", "status": "string?" }],
+  "loanEligibilityByType": [
+    { "loanTypeId": "uuid", "loanTypeName": "Emergency Loan", "timesTwo": 50000, "within": 100000 }
+  ]
 }
 ```
+
+For members, `loanEligibilityByType` lists every active loan type in their co-operative with the eligible amount for both loan modes, using their current savings and each type's maximum. It is empty for admin and super-admin responses.
 
 **Built.** Cards and `recentActivity` are real aggregation queries over `savings_records`/`loan_records` (`DashboardController`/`DashboardService`). The `chart` and any `Dividends` figure have no dedicated table behind them, so they're derived from the real totals rather than invented outright — see `documentation/flows.md` for exactly what's real vs. illustrative.
 

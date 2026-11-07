@@ -5,4 +5,5 @@ import java.util.List;
 public record DashboardSummaryDto(
     List<SummaryCardDto> cards,
     List<ActivityPointDto> chart,
-    List<RecentActivityDto> recentActivity) {}
+    List<RecentActivityDto> recentActivity,
+    List<LoanTypeEligibilityDto> loanEligibilityByType) {}
