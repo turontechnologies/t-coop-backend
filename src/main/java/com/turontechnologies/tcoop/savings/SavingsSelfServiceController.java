@@ -203,7 +203,7 @@ public class SavingsSelfServiceController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that member"));
     }
     SavingsType type = findType(request.savingsTypeId(), id);
-    if (type == null) {
+    if (type == null || !"Active".equals(type.getStatus())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that savings type"));
     }
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
