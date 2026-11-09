@@ -156,6 +156,19 @@ public class LoanRecord {
     this.disbursedAt = LocalDateTime.now();
   }
 
+  /** An existing loan brought in by an admin's import: it was paid out offline on {@code start},
+   * so it skips the approval chain and payout, and starts with {@code repaymentsMade} already
+   * paid. */
+  void markImported(LocalDate start, int repaymentsMade, String status) {
+    this.loanDate = start;
+    this.disbursedAt = start.atStartOfDay();
+    this.disbursedAmount = amount;
+    this.disbursementStatus = "Imported";
+    this.disbursementReference = "import-" + id;
+    this.repaymentsMade = repaymentsMade;
+    this.status = status;
+  }
+
   public String getLoanMode() {
     return loanMode;
   }

@@ -69,6 +69,11 @@ public class LoanRepayment {
     this.createdAt = LocalDateTime.now();
   }
 
+  /** For a repayment brought in by a loan import — dated when it was actually paid. */
+  void setRepaymentDate(LocalDate repaymentDate) {
+    this.repaymentDate = repaymentDate;
+  }
+
   public UUID getId() {
     return id;
   }
