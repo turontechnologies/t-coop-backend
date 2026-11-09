@@ -9,8 +9,8 @@ import java.math.RoundingMode;
  *
  * <p>Two loan modes:
  * <ul>
- *   <li>{@link #TIMES_TWO} — up to half the member's savings (their savings must be at least twice
- *       the loan). Needs a guarantor.
+ *   <li>{@link #TIMES_TWO} — up to twice the member's savings (₦100 saved → up to ₦200). Needs at
+ *       least two guarantors.
  *   <li>{@link #WITHIN} — up to the member's savings; borrowing from their own savings. No
  *       guarantor.
  * </ul>
@@ -32,13 +32,13 @@ public final class LoanEligibility {
   public static BigDecimal forMode(BigDecimal totalSavings, LoanType loanType, String mode) {
     BigDecimal savings = totalSavings.max(BigDecimal.ZERO);
     BigDecimal byMode =
-        WITHIN.equals(mode) ? savings : savings.divide(BigDecimal.valueOf(2), 2, RoundingMode.DOWN);
+        WITHIN.equals(mode) ? savings : savings.multiply(BigDecimal.valueOf(2));
     return byMode.min(loanType.getMaxAmount()).setScale(2, RoundingMode.DOWN);
   }
 
-  /** The largest amount across both modes (Within is always the larger) — for the dashboard. */
+  /** The largest amount across both modes (Times two is always the larger) — for the dashboard. */
   public static BigDecimal best(BigDecimal totalSavings, LoanType loanType) {
-    return forMode(totalSavings, loanType, WITHIN);
+    return forMode(totalSavings, loanType, TIMES_TWO);
   }
 
   /** Total interest for the whole loan, by the loan type's own interest type. */

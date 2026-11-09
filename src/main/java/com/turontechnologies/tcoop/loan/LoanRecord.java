@@ -71,7 +71,7 @@ public class LoanRecord {
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
-  /** "TimesTwo" (up to half the member's savings, guarantor required) or "Within" (up to their
+  /** "TimesTwo" (up to twice the member's savings, two or more guarantors) or "Within" (up to their
    * savings, no guarantor; the payout comes out of their savings and repaid principal goes back
    * in) — see LoanEligibility. */
   @Column(name = "loan_mode")

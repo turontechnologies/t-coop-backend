@@ -167,7 +167,7 @@ public class LoanSelfServiceController {
                   "error",
                   within
                       ? "A Within loan can't be more than your savings (or this loan type's maximum)"
-                      : "A Times two loan can't be more than half your savings (or this loan type's maximum)"));
+                      : "A Times two loan can't be more than twice your savings (or this loan type's maximum)"));
     }
 
     // Interest follows the loan type — a percentage of the amount, a fixed amount, or none for a
