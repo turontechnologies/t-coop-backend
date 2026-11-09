@@ -695,6 +695,21 @@ mode/date/repayment count.
 
 ## 7. Notices — **built** (2026-08-24)
 
+**Meetings (V42, `MeetingAttendanceController`).** A Meeting Notice requires `meetingDate`
+(`yyyy-MM-dd`) and `meetingTime` (`HH:mm`, co-op local time); both come back on the notice. Sending
+one creates a register line per active member it reaches.
+
+| Endpoint | Who | Does |
+|---|---|---|
+| `GET /notices/:id/my-response` | anyone it reached | `{ "entry": Entry \| null, "canRespond": bool }` |
+| `PUT /notices/:id/my-response` `{ "response": "Physical\|Online\|NotAttending", "reason" }` | anyone on its register, until the meeting starts | reason required for `NotAttending`; that answer marks them `Absent` with the reason (`attendanceAuto: true`) unless an officer already marked them |
+| `GET /notices/:id/attendance` | co-op admin / co-op role holders | `{ noticeId, title, meetingDate, meetingTime, summary: { invited, physical, online, notAttending, noResponse, present, absent, unmarked }, entries: [Entry] }` |
+| `PUT /notices/:id/attendance` `{ "entries": [{ "memberId", "attendance": "Present\|Absent\|null", "note" }] }` | same | marks the register; returns it |
+| `GET /attendance/me` | anyone | own history: `[{ noticeId, title, meetingDate, meetingTime, memberId, memberName, response, responseReason, attendance, attendanceNote }]` |
+| `GET /cooperatives/:id/attendance[?memberId=]` | co-op admin / role holders | same shape, every member |
+
+`Entry` = `{ memberId, memberName, response, responseReason, respondedAt, attendance, attendanceNote, attendanceAuto, markedAt }`.
+
 ```ts
 // Notice shape (GET/POST response)
 {
