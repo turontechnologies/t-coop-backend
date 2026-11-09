@@ -14,6 +14,10 @@ public class Member {
   @Id
   private String id;
 
+  /** Optional typed-in second ID (e.g. a staff or old register number), unique within a co-op. */
+  @Column(name = "alternative_id")
+  private String alternativeId;
+
   @Column(name = "cooperative_id")
   private String cooperativeId;
 
@@ -206,6 +210,14 @@ public class Member {
 
   public String getTwitter() {
     return twitter;
+  }
+
+  public String getAlternativeId() {
+    return alternativeId;
+  }
+
+  public void setAlternativeId(String alternativeId) {
+    this.alternativeId = alternativeId == null || alternativeId.isBlank() ? null : alternativeId.trim();
   }
 
   public String getGuarantor() {

@@ -274,6 +274,12 @@ public class CooperativeController {
       return ResponseEntity.status(409)
           .body(Map.of("error", "That email address is already in use by another account"));
     }
+    if (coop.isRequireMemberGuarantors() && (request.guarantor() == null || request.guarantor().isBlank())) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "This co-operative requires a guarantor for every new member"));
+    }
+    var altIdError = alternativeIdConflict(id, request.alternativeId(), null);
+    if (altIdError != null) return altIdError;
 
     String role = "Admin".equals(request.role()) ? "admin" : "member";
     Member member =
@@ -299,7 +305,7 @@ public class CooperativeController {
         request.city(),
         request.facebook(),
         request.twitter(),
-        null,
+        request.guarantor() == null || request.guarantor().isBlank() ? null : request.guarantor().trim(),
         request.nextOfKinName(),
         request.nextOfKinPhone(),
         request.nextOfKinEmail(),
@@ -308,6 +314,7 @@ public class CooperativeController {
         request.bankCode(),
         request.accountNumber(),
         request.accountName());
+    member.setAlternativeId(request.alternativeId());
     memberRepository.save(member);
 
     try {
@@ -366,6 +373,12 @@ public class CooperativeController {
     if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
+    if (coop.isRequireMemberGuarantors() && (request.guarantor() == null || request.guarantor().isBlank())) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "This co-operative requires a guarantor for every member"));
+    }
+    var altIdError = alternativeIdConflict(id, request.alternativeId(), member.getId());
+    if (altIdError != null) return altIdError;
 
     member.updateProfile(
         request.firstName(),
@@ -391,6 +404,7 @@ public class CooperativeController {
         request.accountNumber(),
         request.accountName());
     member.setRole("Admin".equals(request.role()) ? "admin" : "member");
+    member.setAlternativeId(request.alternativeId());
     memberRepository.save(member);
 
     auditLogService.log(
@@ -696,6 +710,9 @@ public class CooperativeController {
     }
     if (request.minGuarantors() != null) {
       coop.setMinGuarantors(request.minGuarantors());
+    }
+    if (request.requireMemberGuarantors() != null) {
+      coop.setRequireMemberGuarantors(request.requireMemberGuarantors());
     }
     cooperativeRepository.save(coop);
 
@@ -1078,6 +1095,7 @@ public class CooperativeController {
         coop.getMemberIdPadding(),
         coop.getMemberIdType(),
         coop.getMinGuarantors(),
+        coop.isRequireMemberGuarantors(),
         memberCount,
         savingsTypeCount,
         loanTypeCount,
@@ -1087,6 +1105,19 @@ public class CooperativeController {
         coop.getSavingsChargeType(),
         coop.getLoansChargeAmount(),
         coop.getLoansChargeType());
+  }
+
+  /** A typed-in alternative ID has to be unique within the co-op (admin included). */
+  private ResponseEntity<?> alternativeIdConflict(String cooperativeId, String alternativeId, String selfId) {
+    if (alternativeId == null || alternativeId.isBlank()) return null;
+    return memberRepository
+        .findByCooperativeIdAndAlternativeId(cooperativeId, alternativeId.trim())
+        .filter(existing -> !existing.getId().equals(selfId))
+        .<ResponseEntity<?>>map(
+            existing ->
+                ResponseEntity.status(409)
+                    .body(Map.of("error", "That alternative ID is already used by " + existing.getFullName())))
+        .orElse(null);
   }
 
   private String adminIdOf(Authentication authentication) {

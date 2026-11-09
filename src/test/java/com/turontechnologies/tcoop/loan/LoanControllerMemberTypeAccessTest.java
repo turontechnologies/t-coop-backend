@@ -57,6 +57,7 @@ class LoanControllerMemberTypeAccessTest {
             memberRepository,
             loanTypeRepository,
             loanRecordRepository,
+            mock(LoanGuarantorRepository.class),
             mock(AuditLogService.class));
 
     var response = controller.types(authentication, cooperativeId);
@@ -91,6 +92,7 @@ class LoanControllerMemberTypeAccessTest {
             memberRepository,
             loanTypeRepository,
             mock(LoanRecordRepository.class),
+            mock(LoanGuarantorRepository.class),
             mock(AuditLogService.class));
 
     var response = controller.types(authentication, "coop-0003");
@@ -134,6 +136,7 @@ class LoanControllerMemberTypeAccessTest {
             memberRepository,
             loanTypeRepository,
             mock(LoanRecordRepository.class),
+            mock(LoanGuarantorRepository.class),
             mock(AuditLogService.class));
 
     var response = controller.types(authentication, cooperativeId);

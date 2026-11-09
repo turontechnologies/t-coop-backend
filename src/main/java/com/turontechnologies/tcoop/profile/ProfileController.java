@@ -83,6 +83,20 @@ public class ProfileController {
         request.bankCode(),
         request.accountNumber(),
         request.accountName());
+    if (request.alternativeId() != null) {
+      String altId = request.alternativeId().trim();
+      if (!altId.isEmpty() && member.getCooperativeId() != null) {
+        var clash =
+            memberRepository
+                .findByCooperativeIdAndAlternativeId(member.getCooperativeId(), altId)
+                .filter(existing -> !existing.getId().equals(member.getId()));
+        if (clash.isPresent()) {
+          return ResponseEntity.status(409)
+              .body(Map.of("error", "That alternative ID is already used by " + clash.get().getFullName()));
+        }
+      }
+      member.setAlternativeId(altId);
+    }
     memberRepository.save(member);
 
     // module/action/resource here must match the frontend's fixed

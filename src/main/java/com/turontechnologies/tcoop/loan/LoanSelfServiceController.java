@@ -49,6 +49,9 @@ public class LoanSelfServiceController {
   private static final Integer SETTINGS_SINGLETON_ID = 1;
   private static final String AWAITING_GUARANTOR = "Awaiting Guarantor";
 
+  /** A Times two loan needs at least this many guarantors. */
+  public static final int MIN_LOAN_GUARANTORS = 2;
+
   /** The approval chain, in order. */
   private static final List<String> CHAIN =
       List.of(CoopOffices.VICE_PRESIDENT, CoopOffices.TREASURER, CoopOffices.SECRETARY);
@@ -58,6 +61,7 @@ public class LoanSelfServiceController {
   private final LoanTypeRepository loanTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
   private final LoanApprovalRepository loanApprovalRepository;
+  private final LoanGuarantorRepository loanGuarantorRepository;
   private final SavingsRecordRepository savingsRecordRepository;
   private final PlatformSettingsRepository platformSettingsRepository;
   private final CoopOffices coopOffices;
@@ -72,6 +76,7 @@ public class LoanSelfServiceController {
       LoanTypeRepository loanTypeRepository,
       LoanRecordRepository loanRecordRepository,
       LoanApprovalRepository loanApprovalRepository,
+      LoanGuarantorRepository loanGuarantorRepository,
       SavingsRecordRepository savingsRecordRepository,
       PlatformSettingsRepository platformSettingsRepository,
       CoopOffices coopOffices,
@@ -84,6 +89,7 @@ public class LoanSelfServiceController {
     this.loanTypeRepository = loanTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
     this.loanApprovalRepository = loanApprovalRepository;
+    this.loanGuarantorRepository = loanGuarantorRepository;
     this.savingsRecordRepository = savingsRecordRepository;
     this.platformSettingsRepository = platformSettingsRepository;
     this.coopOffices = coopOffices;
@@ -138,23 +144,33 @@ public class LoanSelfServiceController {
     }
     boolean within = LoanEligibility.WITHIN.equals(mode);
 
-    // A Within loan is secured by the member's own savings, so it has no guarantor.
-    Member guarantor = null;
+    // A Within loan is secured by the member's own savings, so it has no guarantor. A Times two
+    // loan needs at least MIN_LOAN_GUARANTORS different active members of this co-op.
+    List<Member> guarantors = new java.util.ArrayList<>();
     if (!within) {
-      if (!notBlank(request.guarantorMemberId())) {
-        return ResponseEntity.badRequest().body(Map.of("error", "Select a guarantor"));
+      java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+      if (request.guarantorMemberIds() != null) {
+        request.guarantorMemberIds().stream().filter(value -> notBlank(value)).map(String::trim).forEach(ids::add);
       }
-      guarantor = memberRepository.findById(request.guarantorMemberId()).orElse(null);
-      if (guarantor == null || !id.equals(guarantor.getCooperativeId())) {
-        return ResponseEntity.status(400)
-            .body(Map.of("error", "Your guarantor must be a member of this co-operative"));
+      if (notBlank(request.guarantorMemberId())) ids.add(request.guarantorMemberId().trim());
+      if (ids.size() < MIN_LOAN_GUARANTORS) {
+        return ResponseEntity.badRequest()
+            .body(Map.of("error", "Select at least " + MIN_LOAN_GUARANTORS + " guarantors"));
       }
-      if (!"Active".equals(guarantor.getStatus())) {
-        return ResponseEntity.status(400)
-            .body(Map.of("error", guarantor.getFullName() + " isn't an active member, so they can't guarantee a loan"));
-      }
-      if (guarantor.getId().equals(member.getId())) {
-        return ResponseEntity.status(409).body(Map.of("error", "You can't guarantee your own loan"));
+      for (String guarantorId : ids) {
+        Member guarantor = memberRepository.findById(guarantorId).orElse(null);
+        if (guarantor == null || !id.equals(guarantor.getCooperativeId())) {
+          return ResponseEntity.status(400)
+              .body(Map.of("error", "Every guarantor must be a member of this co-operative"));
+        }
+        if (!"Active".equals(guarantor.getStatus())) {
+          return ResponseEntity.status(400)
+              .body(Map.of("error", guarantor.getFullName() + " isn't an active member, so they can't guarantee a loan"));
+        }
+        if (guarantor.getId().equals(member.getId())) {
+          return ResponseEntity.status(409).body(Map.of("error", "You can't guarantee your own loan"));
+        }
+        guarantors.add(guarantor);
       }
     }
 
@@ -192,27 +208,36 @@ public class LoanSelfServiceController {
             numberOfRepayments,
             monthlyRepayment,
             totalRepayment,
-            guarantor != null ? guarantor.getId() : null,
-            guarantor != null ? guarantor.getFullName() : null,
+            guarantors.isEmpty() ? null : guarantors.get(0).getId(),
+            guarantors.isEmpty()
+                ? null
+                : guarantors.stream().map(Member::getFullName).collect(java.util.stream.Collectors.joining(", ")),
             within ? statusFor(CHAIN.get(0)) : AWAITING_GUARANTOR,
             mode);
     loanRecordRepository.save(record);
+    for (Member guarantor : guarantors) {
+      loanGuarantorRepository.save(
+          new LoanGuarantor(record.getId(), guarantor.getId(), guarantor.getFullName(), LoanGuarantor.PENDING));
+    }
 
     if (within) {
       notifyApprover(record, CHAIN.get(0), member.getFullName(), type.getName());
     } else {
-      notificationService.notify(
-          guarantor.getId(),
-          "LOAN_GUARANTOR_REQUEST",
-          "You've been asked to guarantee a loan",
-          member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
-          "/loans/" + record.getId());
+      for (Member guarantor : guarantors) {
+        notificationService.notify(
+            guarantor.getId(),
+            "LOAN_GUARANTOR_REQUEST",
+            "You've been asked to guarantee a loan",
+            member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
+            "/loans/" + record.getId());
+      }
     }
 
     auditLogService.log(
         member.getId(), member.getRole(), "Loans", "Create", type.getName(), "Success", httpRequest);
 
-    return ResponseEntity.ok(LoanRecordDto.from(record, member.getFullName(), type.getName()));
+    return ResponseEntity.ok(
+        LoanRecordDto.from(record, member.getFullName(), type.getName(), guarantorsOf(record)));
   }
 
   @PatchMapping("/api/v1/cooperatives/{id}/loans/{loanId}/guarantor-response")
@@ -230,11 +255,17 @@ public class LoanSelfServiceController {
     if (record == null || !id.equals(record.getCooperativeId())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
     }
-    if (!caller.getId().equals(record.getGuarantorId())) {
-      return ResponseEntity.status(403).body(Map.of("error", "You aren't this loan's named guarantor"));
+    List<LoanGuarantor> guarantors = guarantorsOf(record);
+    LoanGuarantor mine =
+        guarantors.stream().filter(g -> g.getMemberId().equals(caller.getId())).findFirst().orElse(null);
+    if (mine == null) {
+      return ResponseEntity.status(403).body(Map.of("error", "You aren't one of this loan's guarantors"));
     }
     if (!AWAITING_GUARANTOR.equals(record.getStatus())) {
       return ResponseEntity.status(409).body(Map.of("error", "This loan already moved past guarantor review"));
+    }
+    if (!LoanGuarantor.PENDING.equals(mine.getStatus())) {
+      return ResponseEntity.status(409).body(Map.of("error", "You've already responded to this request"));
     }
 
     Member applicant = memberRepository.findById(record.getMemberId()).orElse(null);
@@ -242,24 +273,34 @@ public class LoanSelfServiceController {
     String typeName = typeNameOf(record);
 
     if ("Accepted".equals(request.decision())) {
-      String firstStep = CHAIN.get(0);
-      record.setStatus(statusFor(firstStep));
-      record.setGuarantorAcceptedAt(LocalDateTime.now());
-      if (notBlank(request.documentUrl())) {
+      mine.accept(notBlank(request.documentUrl()) ? request.documentUrl() : null);
+      loanGuarantorRepository.save(mine);
+      if (notBlank(request.documentUrl()) && record.getGuarantorDocumentUrl() == null) {
         record.setGuarantorDocumentUrl(request.documentUrl());
       }
-      loanRecordRepository.save(record);
-      notifyApprover(record, firstStep, applicantName, typeName);
+      // The loan reaches the officers only once every guarantor has accepted.
+      boolean allAccepted = guarantors.stream().allMatch(g -> LoanGuarantor.ACCEPTED.equals(g.getStatus()));
+      if (allAccepted) {
+        String firstStep = CHAIN.get(0);
+        record.setStatus(statusFor(firstStep));
+        record.setGuarantorAcceptedAt(LocalDateTime.now());
+        loanRecordRepository.save(record);
+        notifyApprover(record, firstStep, applicantName, typeName);
+      } else {
+        loanRecordRepository.save(record);
+      }
     } else {
+      mine.decline();
+      loanGuarantorRepository.save(mine);
       record.setStatus("Rejected");
-      record.setRejectionReason("Guarantor declined to stand for this loan.");
+      record.setRejectionReason("Guarantor declined to stand for this loan (" + mine.getMemberName() + ").");
       loanRecordRepository.save(record);
       if (applicant != null) {
         notificationService.notify(
             applicant.getId(),
             "LOAN_GUARANTOR_REJECTED",
             "Your loan application was declined",
-            "Your guarantor declined to stand for your " + typeName + " loan application.",
+            mine.getMemberName() + " declined to stand as guarantor for your " + typeName + " loan application.",
             "/loans/" + record.getId());
       }
     }
@@ -268,7 +309,8 @@ public class LoanSelfServiceController {
         caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
 
     return ResponseEntity.ok(
-        LoanRecordDto.from(record, applicant != null ? applicant.getFullName() : "Unknown member", typeName));
+        LoanRecordDto.from(
+            record, applicant != null ? applicant.getFullName() : "Unknown member", typeName, guarantorsOf(record)));
   }
 
   /** Where the loan is in the approval chain, and whether the caller can act on it. */
@@ -283,8 +325,7 @@ public class LoanSelfServiceController {
     if (record == null || !id.equals(record.getCooperativeId())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
     }
-    boolean isParty =
-        caller.getId().equals(record.getMemberId()) || caller.getId().equals(record.getGuarantorId());
+    boolean isParty = isPartyTo(caller.getId(), record);
     boolean isStaff =
         "super_admin".equals(caller.getRole()) || "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
     if (!isParty && !isStaff) {
@@ -373,7 +414,7 @@ public class LoanSelfServiceController {
             "/loans/" + record.getId());
       }
       auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Warning", httpRequest);
-      return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName));
+      return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName, guarantorsOf(record)));
     }
 
     String step = authority.office();
@@ -387,7 +428,7 @@ public class LoanSelfServiceController {
       saveDecision(record, authority, caller, "Approved", null);
       notifyApprover(record, nextStep, applicantName, typeName);
       auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
-      return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName));
+      return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName, guarantorsOf(record)));
     }
 
     // Final step — pay the loan out before recording the approval.
@@ -457,7 +498,7 @@ public class LoanSelfServiceController {
         "/loans/" + record.getId());
 
     auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
-    return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName));
+    return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName, guarantorsOf(record)));
   }
 
   /** What the caller may do on this loan right now. {@code office} is the step the decision is
@@ -474,8 +515,8 @@ public class LoanSelfServiceController {
   private Authority authorityFor(Member caller, LoanRecord record) {
     String cooperativeId = record.getCooperativeId();
     if (!cooperativeId.equals(caller.getCooperativeId())) return Authority.NONE;
-    // Nobody acts on a loan they're the borrower or guarantor of.
-    if (caller.getId().equals(record.getMemberId()) || caller.getId().equals(record.getGuarantorId())) {
+    // Nobody acts on a loan they're the borrower or a guarantor of.
+    if (isPartyTo(caller.getId(), record)) {
       return Authority.NONE;
     }
 
@@ -502,9 +543,19 @@ public class LoanSelfServiceController {
   private Member eligibleHolder(String cooperativeId, String office, LoanRecord record) {
     return coopOffices
         .holderOf(cooperativeId, office)
-        .filter(holder -> !holder.getId().equals(record.getMemberId()))
-        .filter(holder -> !holder.getId().equals(record.getGuarantorId()))
+        .filter(holder -> !isPartyTo(holder.getId(), record))
         .orElse(null);
+  }
+
+  /** The borrower, or any of the loan's guarantors. */
+  private boolean isPartyTo(String memberId, LoanRecord record) {
+    return memberId.equals(record.getMemberId())
+        || memberId.equals(record.getGuarantorId())
+        || loanGuarantorRepository.existsByLoanIdAndMemberId(record.getId(), memberId);
+  }
+
+  private List<LoanGuarantor> guarantorsOf(LoanRecord record) {
+    return loanGuarantorRepository.findAllByLoanIdOrderByCreatedAtAsc(record.getId());
   }
 
   private void notifyApprover(LoanRecord record, String office, String applicantName, String typeName) {

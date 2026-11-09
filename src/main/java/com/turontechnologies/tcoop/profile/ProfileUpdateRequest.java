@@ -41,4 +41,7 @@ public record ProfileUpdateRequest(
     String nextOfKinPhone,
     String nextOfKinEmail,
     String nextOfKinRelationship,
-    String nextOfKinAuthorityLevel) {}
+    String nextOfKinAuthorityLevel,
+    /** Optional typed-in second ID; null leaves it unchanged, blank clears it. */
+    @jakarta.validation.constraints.Size(max = 50, message = "Keep the alternative ID under 50 characters")
+        String alternativeId) {}

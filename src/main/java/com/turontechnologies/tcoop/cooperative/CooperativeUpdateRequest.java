@@ -43,4 +43,6 @@ public record CooperativeUpdateRequest(
         Integer memberIdPadding,
     @Pattern(regexp = "NUMERIC|ALPHA|ALPHANUMERIC", message = "Select a valid ID type") String memberIdType,
     @Min(value = 1, message = "Enter at least 1 guarantor") @Max(value = 10, message = "Enter at most 10 guarantors")
-        Integer minGuarantors) {}
+        Integer minGuarantors,
+    /** Settings → Co-operative: require a guarantor when adding a member. */
+    Boolean requireMemberGuarantors) {}

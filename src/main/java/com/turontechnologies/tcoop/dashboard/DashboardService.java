@@ -170,7 +170,7 @@ public class DashboardService {
                         .toList();
         BigDecimal loanEligibility =
                 loanEligibilityByType.stream()
-                        .map(eligibility -> eligibility.within())
+                        .map(eligibility -> eligibility.timesTwo().max(eligibility.within()))
                         .max(BigDecimal::compareTo)
                         .orElse(BigDecimal.ZERO);
 

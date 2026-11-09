@@ -25,6 +25,7 @@ public record CooperativeSummaryDto(
     int memberIdPadding,
     String memberIdType,
     int minGuarantors,
+    boolean requireMemberGuarantors,
     long memberCount,
     long savingsTypeCount,
     long loanTypeCount,

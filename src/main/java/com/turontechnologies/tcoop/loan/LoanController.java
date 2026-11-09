@@ -35,6 +35,7 @@ public class LoanController {
   private final MemberRepository memberRepository;
   private final LoanTypeRepository loanTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
+  private final LoanGuarantorRepository loanGuarantorRepository;
   private final AuditLogService auditLogService;
 
   public LoanController(
@@ -42,7 +43,9 @@ public class LoanController {
       MemberRepository memberRepository,
       LoanTypeRepository loanTypeRepository,
       LoanRecordRepository loanRecordRepository,
+      LoanGuarantorRepository loanGuarantorRepository,
       AuditLogService auditLogService) {
+    this.loanGuarantorRepository = loanGuarantorRepository;
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.loanTypeRepository = loanTypeRepository;
@@ -232,27 +235,42 @@ public class LoanController {
     // applicant — otherwise a guarantor has no way to find the request they were notified about.
     // Only applies to a member's own unfiltered view, not a staff member's memberId query param.
     String guarantorMatchId = isStaff ? null : access.caller().getId();
+    java.util.Set<UUID> guaranteedLoanIds =
+        guarantorMatchId == null
+            ? java.util.Set.of()
+            : loanGuarantorRepository.findAllByMemberId(guarantorMatchId).stream()
+                .map(LoanGuarantor::getLoanId)
+                .collect(java.util.stream.Collectors.toSet());
 
     Map<UUID, String> typeNames = typeNamesFor(id);
     Map<String, String> memberNames = memberNamesFor(id);
 
-    List<LoanRecordDto> dtos =
+    List<LoanRecord> matching =
         loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(id).stream()
             .filter(
                 record ->
                     effectiveMemberId == null
                         || effectiveMemberId.equals(record.getMemberId())
-                        || (guarantorMatchId != null && guarantorMatchId.equals(record.getGuarantorId())))
+                        || (guarantorMatchId != null
+                            && (guarantorMatchId.equals(record.getGuarantorId())
+                                || guaranteedLoanIds.contains(record.getId()))))
             .filter(record -> type == null || type.equals(typeNames.get(record.getLoanTypeId())))
             .filter(record -> status == null || status.equals(record.getStatus()))
             .filter(record -> from == null || !record.getLoanDate().isBefore(from))
             .filter(record -> to == null || !record.getLoanDate().isAfter(to))
+            .toList();
+    Map<UUID, List<LoanGuarantor>> guarantorsByLoan =
+        loanGuarantorRepository.findAllByLoanIdIn(matching.stream().map(LoanRecord::getId).toList()).stream()
+            .collect(java.util.stream.Collectors.groupingBy(LoanGuarantor::getLoanId));
+    List<LoanRecordDto> dtos =
+        matching.stream()
             .map(
                 record ->
                     LoanRecordDto.from(
                         record,
                         memberNames.getOrDefault(record.getMemberId(), "Unknown member"),
-                        typeNames.getOrDefault(record.getLoanTypeId(), "Unknown type")))
+                        typeNames.getOrDefault(record.getLoanTypeId(), "Unknown type"),
+                        guarantorsByLoan.getOrDefault(record.getId(), List.of())))
             .toList();
     return ResponseEntity.ok(dtos);
   }
@@ -276,7 +294,9 @@ public class LoanController {
             || "super_admin".equals(caller.getRole())
             || caller.getCoopRoleId() != null;
     boolean isParty =
-        record.getMemberId().equals(caller.getId()) || caller.getId().equals(record.getGuarantorId());
+        record.getMemberId().equals(caller.getId())
+            || caller.getId().equals(record.getGuarantorId())
+            || loanGuarantorRepository.existsByLoanIdAndMemberId(record.getId(), caller.getId());
     boolean staffOwnsCoop = isStaff && record.getCooperativeId().equals(caller.getCooperativeId());
     if (!"super_admin".equals(caller.getRole()) && !isParty && !staffOwnsCoop) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view that loan record"));
@@ -288,7 +308,8 @@ public class LoanController {
         LoanRecordDto.from(
             record,
             member != null ? member.getFullName() : "Unknown member",
-            type != null ? type.getName() : "Unknown type"));
+            type != null ? type.getName() : "Unknown type",
+            loanGuarantorRepository.findAllByLoanIdOrderByCreatedAtAsc(record.getId())));
   }
 
   private LoanRecord findRecord(String id) {

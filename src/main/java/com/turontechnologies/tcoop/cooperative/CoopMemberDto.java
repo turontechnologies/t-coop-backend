@@ -35,7 +35,8 @@ public record CoopMemberDto(
     String bankCode,
     String accountNumber,
     String accountName,
-    String avatarUrl) {
+    String avatarUrl,
+    String alternativeId) {
 
   public static CoopMemberDto from(Member member) {
     return new CoopMemberDto(
@@ -64,6 +65,7 @@ public record CoopMemberDto(
         member.getBankCode(),
         member.getAccountNumber(),
         member.getAccountName(),
-        member.getAvatarUrl());
+        member.getAvatarUrl(),
+        member.getAlternativeId());
   }
 }

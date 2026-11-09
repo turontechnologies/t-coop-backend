@@ -2,6 +2,7 @@ package com.turontechnologies.tcoop.cooperative;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 /** PATCH /api/v1/cooperatives/{id}/members/{memberId} — mirrors the frontend's editMemberSchema
  * exactly; fields it doesn't show (otherName, gender, phone, nin, facebook, twitter) are left
@@ -14,11 +15,12 @@ public record MemberUpdateRequest(
     @NotBlank(message = "Select a role")
         @Pattern(regexp = "Admin|Member", message = "Select a valid role")
         String role,
-    /** Optional — members don't need a guarantor to join (only to take a loan). */
+    /** Optional unless the co-op requires a guarantor for members (see MemberCreateRequest). */
     String guarantor,
     @NotBlank(message = "Select a country") String country,
     @NotBlank(message = "Select a state") String state,
     @NotBlank(message = "Select a city") String city,
     @NotBlank(message = "Select a bank") String bankCode,
     @NotBlank(message = "Enter an account number") String accountNumber,
-    String accountName) {}
+    String accountName,
+    @Size(max = 50, message = "Keep the alternative ID under 50 characters") String alternativeId) {}

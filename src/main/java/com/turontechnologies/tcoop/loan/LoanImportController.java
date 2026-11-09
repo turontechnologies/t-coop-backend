@@ -36,6 +36,7 @@ public class LoanImportController {
   private final LoanTypeRepository loanTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
   private final LoanRepaymentRepository loanRepaymentRepository;
+  private final LoanGuarantorRepository loanGuarantorRepository;
   private final CoopPermissions coopPermissions;
   private final AuditLogService auditLogService;
 
@@ -44,12 +45,14 @@ public class LoanImportController {
       LoanTypeRepository loanTypeRepository,
       LoanRecordRepository loanRecordRepository,
       LoanRepaymentRepository loanRepaymentRepository,
+      LoanGuarantorRepository loanGuarantorRepository,
       CoopPermissions coopPermissions,
       AuditLogService auditLogService) {
     this.memberRepository = memberRepository;
     this.loanTypeRepository = loanTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
     this.loanRepaymentRepository = loanRepaymentRepository;
+    this.loanGuarantorRepository = loanGuarantorRepository;
     this.coopPermissions = coopPermissions;
     this.auditLogService = auditLogService;
   }
@@ -149,6 +152,10 @@ public class LoanImportController {
             mode);
     record.markImported(start, paid, paid == installments ? "Completed" : "Active");
     loanRecordRepository.save(record);
+    if (guarantor != null) {
+      loanGuarantorRepository.save(
+          new LoanGuarantor(record.getId(), guarantor.getId(), guarantor.getFullName(), LoanGuarantor.ACCEPTED));
+    }
 
     for (int n = 1; n <= paid; n++) {
       // The last installment absorbs the rounding so a fully repaid loan sums to the total exactly.

@@ -97,6 +97,10 @@ public class Cooperative {
   /** Every new member needs at least this many guarantors (see CooperativeController.addMember —
    * also enforces that at least one of them is an existing member of this same co-op). Each
    * co-op's own admin sets this via Settings -> Co-operative -> Membership Rules. */
+  /** When on, adding a member requires their guarantor (CooperativeController.addMember). */
+  @Column(name = "require_member_guarantors")
+  private boolean requireMemberGuarantors;
+
   @Column(name = "min_guarantors")
   private int minGuarantors;
 
@@ -322,6 +326,14 @@ public class Cooperative {
     this.memberIdPrefix = memberIdPrefix;
     this.memberIdPadding = memberIdPadding;
     this.memberIdType = memberIdType;
+  }
+
+  public boolean isRequireMemberGuarantors() {
+    return requireMemberGuarantors;
+  }
+
+  public void setRequireMemberGuarantors(boolean requireMemberGuarantors) {
+    this.requireMemberGuarantors = requireMemberGuarantors;
   }
 
   public int getMinGuarantors() {

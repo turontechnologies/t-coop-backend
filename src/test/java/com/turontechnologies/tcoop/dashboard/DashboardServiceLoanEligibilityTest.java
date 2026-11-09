@@ -23,7 +23,7 @@ class DashboardServiceLoanEligibilityTest {
     String cooperativeId = "coop-0002";
     String memberId = "MB-0001";
     LoanType smallLoan = loanType(cooperativeId, "Small Loan", "1000");
-    LoanType largeLoan = loanType(cooperativeId, "Large Loan", "8000");
+    LoanType largeLoan = loanType(cooperativeId, "Large Loan", "25000");
     LoanType inactiveLoan = loanType(cooperativeId, "Inactive Loan", "25000");
     inactiveLoan.setStatus("Inactive");
 
@@ -65,11 +65,12 @@ class DashboardServiceLoanEligibilityTest {
         .isEqualByComparingTo("1000");
     assertThat(summary.loanEligibilityByType().get(0).within())
         .isEqualByComparingTo("1000");
+    // ₦10,000 saved: Times two allows up to twice that, Within up to the savings themselves.
     assertThat(summary.loanEligibilityByType().get(1).timesTwo())
-        .isEqualByComparingTo("5000");
+        .isEqualByComparingTo("20000");
     assertThat(summary.loanEligibilityByType().get(1).within())
-        .isEqualByComparingTo("8000");
-    assertThat(summary.cards().get(3).value()).isEqualByComparingTo("8000");
+        .isEqualByComparingTo("10000");
+    assertThat(summary.cards().get(3).value()).isEqualByComparingTo("20000");
   }
 
   private static LoanType loanType(String cooperativeId, String name, String maxAmount) {

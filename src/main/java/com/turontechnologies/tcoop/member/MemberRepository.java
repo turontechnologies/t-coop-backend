@@ -9,6 +9,8 @@ public interface MemberRepository extends JpaRepository<Member, String> {
 
   Optional<Member> findByEmail(String email);
 
+  Optional<Member> findByCooperativeIdAndAlternativeId(String cooperativeId, String alternativeId);
+
   Optional<Member> findByInviteToken(String inviteToken);
 
   long countByRoleIn(List<String> roles);

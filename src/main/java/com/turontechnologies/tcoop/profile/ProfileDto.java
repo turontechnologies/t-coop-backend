@@ -26,7 +26,8 @@ public record ProfileDto(
     String nextOfKinPhone,
     String nextOfKinEmail,
     String nextOfKinRelationship,
-    String nextOfKinAuthorityLevel) {
+    String nextOfKinAuthorityLevel,
+    String alternativeId) {
 
   public static ProfileDto from(Member member) {
     return new ProfileDto(
@@ -52,6 +53,7 @@ public record ProfileDto(
         member.getNextOfKinPhone(),
         member.getNextOfKinEmail(),
         member.getNextOfKinRelationship(),
-        member.getNextOfKinAuthorityLevel());
+        member.getNextOfKinAuthorityLevel(),
+        member.getAlternativeId());
   }
 }
