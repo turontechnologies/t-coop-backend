@@ -1,6 +1,7 @@
 package com.turontechnologies.tcoop.notice;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.notice.MeetingAttendanceDtos.EntryDto;
@@ -52,18 +53,21 @@ public class MeetingAttendanceController {
   private final MeetingAttendanceService attendanceService;
   private final MemberRepository memberRepository;
   private final AuditLogService auditLogService;
+  private final CoopPermissions coopPermissions;
 
   public MeetingAttendanceController(
       NoticeRepository noticeRepository,
       MeetingAttendanceRepository attendanceRepository,
       MeetingAttendanceService attendanceService,
       MemberRepository memberRepository,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      CoopPermissions coopPermissions) {
     this.noticeRepository = noticeRepository;
     this.attendanceRepository = attendanceRepository;
     this.attendanceService = attendanceService;
     this.memberRepository = memberRepository;
     this.auditLogService = auditLogService;
+    this.coopPermissions = coopPermissions;
   }
 
   /** The caller's own line on a meeting — null `entry` when they aren't on its register. */
@@ -146,6 +150,10 @@ public class MeetingAttendanceController {
     if (!isOfficerOf(caller, notice)) {
       return ResponseEntity.status(403).body(Map.of("error", "Only the co-operative's officers can take attendance"));
     }
+    if (!hasNoticeBoardWrite(caller, notice)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have write access to the Notice Board"));
+    }
     if (!hasStarted(notice)) {
       return ResponseEntity.status(409).body(Map.of("error", "Attendance opens when the meeting starts"));
     }
@@ -199,7 +207,9 @@ public class MeetingAttendanceController {
     if (caller == null) return unauthorized();
     boolean allowed =
         "super_admin".equals(caller.getRole())
-            || (coopId.equals(caller.getCooperativeId()) && isStaff(caller));
+            || (coopId.equals(caller.getCooperativeId())
+                && coopPermissions.isStaff(caller, coopId)
+                && coopPermissions.allows(caller, coopId, "Notice Board", null, false));
     if (!allowed) {
       return ResponseEntity.status(403).body(Map.of("error", "Only the co-operative's officers can see everyone's attendance"));
     }
@@ -304,16 +314,25 @@ public class MeetingAttendanceController {
   }
 
   private boolean canViewRegister(Member caller, Notice notice) {
-    return "super_admin".equals(caller.getRole()) || isOfficerOf(caller, notice);
+    return "super_admin".equals(caller.getRole())
+        || (isOfficerOf(caller, notice) && hasNoticeBoardRead(caller, notice));
   }
 
   private boolean isOfficerOf(Member caller, Notice notice) {
-    return caller.getCooperativeId() != null && notice.targetsCoop(caller.getCooperativeId()) && isStaff(caller);
+    String coopId = caller.getCooperativeId();
+    return coopId != null
+        && notice.targetsCoop(coopId)
+        && coopPermissions.isStaff(caller, coopId);
   }
 
-  /** Same people who manage notices: the co-op admin, or a member holding a co-op role. */
-  private static boolean isStaff(Member caller) {
-    return "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+  private boolean hasNoticeBoardRead(Member caller, Notice notice) {
+    return "super_admin".equals(caller.getRole())
+        || coopPermissions.allows(caller, caller.getCooperativeId(), "Notice Board", null, false);
+  }
+
+  private boolean hasNoticeBoardWrite(Member caller, Notice notice) {
+    return "super_admin".equals(caller.getRole())
+        || coopPermissions.allows(caller, caller.getCooperativeId(), "Notice Board", null, true);
   }
 
   private Map<String, String> namesOf(List<String> memberIds) {

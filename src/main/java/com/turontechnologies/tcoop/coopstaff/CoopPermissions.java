@@ -22,7 +22,7 @@ public class CoopPermissions {
    * with write access if {@code write}. */
   public boolean allows(Member caller, String cooperativeId, String module, String tab, boolean write) {
     if (caller == null || !cooperativeId.equals(caller.getCooperativeId())) return false;
-    if ("admin".equals(caller.getRole())) return true;
+    if (isCooperativeAdmin(caller, cooperativeId)) return true;
     if (caller.getCoopRoleId() == null) return false;
     CoopRole role = coopRoleRepository.findById(caller.getCoopRoleId()).orElse(null);
     if (role == null || !"Active".equals(role.getStatus()) || !cooperativeId.equals(role.getCooperativeId())) {
@@ -35,12 +35,16 @@ public class CoopPermissions {
   /** Is this member co-op staff at all (the admin, or anyone holding an active co-op role)? */
   public boolean isStaff(Member caller, String cooperativeId) {
     if (caller == null || !cooperativeId.equals(caller.getCooperativeId())) return false;
-    if ("admin".equals(caller.getRole())) return true;
+    if (isCooperativeAdmin(caller, cooperativeId)) return true;
     return caller.getCoopRoleId() != null
         && coopRoleRepository
             .findById(caller.getCoopRoleId())
             .map(role -> "Active".equals(role.getStatus()) && cooperativeId.equals(role.getCooperativeId()))
             .orElse(false);
+  }
+
+  private static boolean isCooperativeAdmin(Member caller, String cooperativeId) {
+    return "admin".equals(caller.getRole()) && cooperativeId.equals(caller.getId());
   }
 
   private static String grantedAccess(CoopRole role, String module, String tab) {

@@ -196,7 +196,9 @@ public class CoopRoleController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    if ("admin".equals(caller.getRole()) && cooperativeId.equals(caller.getCooperativeId())) {
+    if ("admin".equals(caller.getRole())
+        && cooperativeId.equals(caller.getId())
+        && cooperativeId.equals(caller.getCooperativeId())) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

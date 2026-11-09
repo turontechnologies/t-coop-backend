@@ -331,10 +331,12 @@ public class LoanSelfServiceController {
     }
     boolean isParty = isPartyTo(caller.getId(), record);
     boolean isStaff =
-        "super_admin".equals(caller.getRole()) || "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+        "super_admin".equals(caller.getRole())
+            || isCooperativeAdmin(caller, id)
+            || caller.getCoopRoleId() != null;
     boolean canReadRequests =
         "super_admin".equals(caller.getRole())
-            || "admin".equals(caller.getRole())
+            || isCooperativeAdmin(caller, id)
             || coopPermissions.allows(caller, id, "Loans", "Requests", false);
     if (!isParty && (!isStaff || !canReadRequests)) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view this loan's approvals"));
@@ -394,7 +396,7 @@ public class LoanSelfServiceController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
     }
 
-    if (caller.getCoopRoleId() != null
+    if (!isCooperativeAdmin(caller, id)
         && !coopPermissions.allows(caller, id, "Loans", "Requests", true)) {
       return ResponseEntity.status(403)
           .body(Map.of("error", "Your role doesn't have write access to loan requests"));
@@ -540,7 +542,7 @@ public class LoanSelfServiceController {
       if (holder != null && holder.getId().equals(caller.getId())) {
         return new Authority(true, true, step, false);
       }
-      if (holder == null && "admin".equals(caller.getRole())) {
+      if (holder == null && isCooperativeAdmin(caller, cooperativeId)) {
         return new Authority(true, true, step, true);
       }
     }
@@ -659,6 +661,12 @@ public class LoanSelfServiceController {
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
+
+  private static boolean isCooperativeAdmin(Member caller, String cooperativeId) {
+    return "admin".equals(caller.getRole())
+        && cooperativeId.equals(caller.getId())
+        && cooperativeId.equals(caller.getCooperativeId());
+  }
 
   private CoopAccess requireMemberOfCoop(Authentication authentication, String cooperativeId) {
     String callerId = (String) authentication.getPrincipal();

@@ -322,6 +322,9 @@ public class NoticeController {
   public ResponseEntity<?> replies(Authentication authentication, @PathVariable UUID id) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    if (!canReadNoticeBoard(caller)) {
+      return ResponseEntity.status(403).body(Map.of("error", "Your role doesn't have read access to the Notice Board"));
+    }
 
     Notice notice = noticeRepository.findById(id).orElse(null);
     if (notice == null || !isVisible(notice, caller)) {
@@ -347,6 +350,9 @@ public class NoticeController {
       HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    if (!canReadNoticeBoard(caller)) {
+      return ResponseEntity.status(403).body(Map.of("error", "Your role doesn't have read access to the Notice Board"));
+    }
 
     Notice notice = noticeRepository.findById(id).orElse(null);
     if (notice == null || !isVisible(notice, caller)) {
@@ -374,7 +380,8 @@ public class NoticeController {
    * beyond what's addressed to them. */
   private boolean canManageNotices(Member caller) {
     return "super_admin".equals(caller.getRole())
-        || "admin".equals(caller.getRole())
+        || ("admin".equals(caller.getRole())
+            && caller.getId().equals(caller.getCooperativeId()))
         || (caller.getCooperativeId() != null
             && coopPermissions.isStaff(caller, caller.getCooperativeId()));
   }
@@ -386,7 +393,9 @@ public class NoticeController {
   }
 
   private boolean canWriteNoticeBoard(Member caller) {
-    if ("super_admin".equals(caller.getRole()) || "admin".equals(caller.getRole())) return true;
+    if ("super_admin".equals(caller.getRole())
+        || ("admin".equals(caller.getRole())
+            && caller.getId().equals(caller.getCooperativeId()))) return true;
     return caller.getCooperativeId() != null
         && coopPermissions.allows(caller, caller.getCooperativeId(), "Notice Board", null, true);
   }
@@ -416,10 +425,18 @@ public class NoticeController {
    * its in-app notification. */
   private void fanOutNotifications(Notice notice) {
     String link = "/notice-board/" + notice.getId();
+    String deliveryMessage = notice.getMessage();
+    if (notice.getAttachmentUrl() != null) {
+      deliveryMessage +=
+          "\n\nAttachment: "
+              + notice.getAttachmentName()
+              + "\n"
+              + notice.getAttachmentUrl();
+    }
     String excerpt =
-        notice.getMessage().length() > EXCERPT_LENGTH
-            ? notice.getMessage().substring(0, EXCERPT_LENGTH).trim() + "…"
-            : notice.getMessage();
+        deliveryMessage.length() > EXCERPT_LENGTH
+            ? deliveryMessage.substring(0, EXCERPT_LENGTH).trim() + "…"
+            : deliveryMessage;
     boolean sendEmail = notice.getMedium().contains("Email");
     boolean sendSms = notice.getMedium().contains("SMS");
 
@@ -430,7 +447,7 @@ public class NoticeController {
         if (sendEmail && member.getEmail() != null && !member.getEmail().isBlank()) {
           try {
             emailService.sendNoticeEmail(
-                member.getEmail(), member.getFullName(), notice.getType(), notice.getTitle(), notice.getMessage());
+                member.getEmail(), member.getFullName(), notice.getType(), notice.getTitle(), deliveryMessage);
           } catch (EmailDeliveryException e) {
             log.warn(
                 "Notice {} created but email to {} failed: {}",
