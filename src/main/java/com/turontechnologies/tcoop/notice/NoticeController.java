@@ -310,6 +310,10 @@ public class NoticeController {
     }
 
     // notice_targets and notice_replies both cascade-delete at the DB level (V20).
+    // Minutes keep existing when their meeting is deleted — just no longer linked to it.
+    List<Notice> linkedMinutes = noticeRepository.findAllByMeetingNoticeId(notice.getId());
+    linkedMinutes.forEach(minutes -> minutes.setMeetingNoticeId(null));
+    noticeRepository.saveAll(linkedMinutes);
     noticeRepository.delete(notice);
 
     auditLogService.log(

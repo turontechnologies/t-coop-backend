@@ -1,11 +1,13 @@
 -- Meetings are open for attendance marking from their start until their scheduled duration ends.
 -- Minutes can be linked to the meeting they record so they can be distributed to its audience.
+-- SQL Server rejects ON DELETE SET NULL on a self-referencing key (error 1785), so the link is a
+-- plain key: NoticeController.delete unlinks a meeting's minutes before deleting the meeting.
 
 ALTER TABLE notices ADD
     meeting_duration_minutes INT NOT NULL
         CONSTRAINT DF_notices_meeting_duration_minutes DEFAULT 120,
     meeting_notice_id UNIQUEIDENTIFIER NULL
-        REFERENCES notices(id) ON DELETE SET NULL;
+        CONSTRAINT FK_notices_meeting_notice REFERENCES notices(id);
 GO
 
 ALTER TABLE notices ADD CONSTRAINT CK_notices_meeting_duration_minutes

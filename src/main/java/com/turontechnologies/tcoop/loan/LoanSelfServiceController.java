@@ -405,8 +405,7 @@ public class LoanSelfServiceController {
     boolean approving = "Approved".equals(request.decision());
     Authority authority = authorityFor(caller, record);
     if (approving ? !authority.canApprove() : !authority.canReject()) {
-      return ResponseEntity.status(403)
-          .body(Map.of("error", approving ? "This loan isn't waiting for your approval" : "You can't reject this loan"));
+      return ResponseEntity.status(403).body(Map.of("error", cannotActReason(caller, record, approving)));
     }
 
     Member applicant = memberRepository.findById(record.getMemberId()).orElse(null);
@@ -518,49 +517,89 @@ public class LoanSelfServiceController {
   }
 
   /** What the caller may do on this loan right now. {@code office} is the step the decision is
-   * recorded against; {@code covering} means the admin is standing in for a vacant office. */
-  private record Authority(boolean canApprove, boolean canReject, String office, boolean covering) {
-    static final Authority NONE = new Authority(false, false, null, false);
+   * recorded against; {@code covering} means someone other than that office's holder is standing
+   * in for it, and {@code coveredBy} says who ("Admin", "President", ...). */
+  private record Authority(
+      boolean canApprove, boolean canReject, String office, boolean covering, String coveredBy) {
+    static final Authority NONE = new Authority(false, false, null, false, null);
 
     String actingAsLabel() {
       if (office == null) return null;
-      return covering ? "Admin (covering for " + CoopOffices.nameOf(office) + ")" : CoopOffices.nameOf(office);
+      return covering
+          ? coveredBy + " (covering for " + CoopOffices.nameOf(office) + ")"
+          : CoopOffices.nameOf(office);
     }
   }
+
+  /** Who acts on a step, and whether they're covering for the office. */
+  private record Actor(Member member, boolean covering, String label) {}
 
   private Authority authorityFor(Member caller, LoanRecord record) {
     String cooperativeId = record.getCooperativeId();
     if (!cooperativeId.equals(caller.getCooperativeId())) return Authority.NONE;
-    // Nobody acts on a loan they're the borrower or a guarantor of.
-    if (isPartyTo(caller.getId(), record)) {
-      return Authority.NONE;
-    }
+    // The borrower never acts on their own loan.
+    if (caller.getId().equals(record.getMemberId())) return Authority.NONE;
 
     String step = officeForStatus(record.getStatus());
     if (step != null) {
-      Member holder = eligibleHolder(cooperativeId, step, record);
-      if (holder != null && holder.getId().equals(caller.getId())) {
-        return new Authority(true, true, step, false);
-      }
-      if (holder == null && isCooperativeAdmin(caller, cooperativeId)) {
-        return new Authority(true, true, step, true);
+      Actor actor = actorFor(cooperativeId, step, record);
+      if (actor != null && actor.member().getId().equals(caller.getId())) {
+        return new Authority(true, true, step, actor.covering(), actor.label());
       }
     }
 
     boolean stillOpen = step != null || AWAITING_GUARANTOR.equals(record.getStatus());
-    if (stillOpen && CoopOffices.PRESIDENT.equals(coopOffices.officeOf(caller))) {
-      return new Authority(false, true, CoopOffices.PRESIDENT, false);
+    if (stillOpen
+        && CoopOffices.PRESIDENT.equals(coopOffices.officeOf(caller))
+        && !isPartyTo(caller.getId(), record)) {
+      return new Authority(false, true, CoopOffices.PRESIDENT, false, null);
     }
     return Authority.NONE;
   }
 
-  /** The member who should act on this step — the office holder, unless the office is vacant or
-   * held by the borrower/guarantor themselves, in which case null (the admin covers it). */
-  private Member eligibleHolder(String cooperativeId, String office, LoanRecord record) {
-    return coopOffices
-        .holderOf(cooperativeId, office)
-        .filter(holder -> !isPartyTo(holder.getId(), record))
-        .orElse(null);
+  /**
+   * Who acts on this step. Nobody should approve a loan they guarantee, so it goes, in order, to:
+   * the office holder; else the co-op admin; else the President; else any other officer — each
+   * only if they're not the borrower or a guarantor. If every one of them is a guarantor, the
+   * office holder (then the admin) acts anyway so the loan can never get stuck — but the
+   * borrower never does.
+   */
+  private Actor actorFor(String cooperativeId, String office, LoanRecord record) {
+    Member holder = coopOffices.holderOf(cooperativeId, office).orElse(null);
+    Member admin = memberRepository.findById(cooperativeId).orElse(null);
+    if (holder != null && !isPartyTo(holder.getId(), record)) return new Actor(holder, false, null);
+    if (admin != null && !isPartyTo(admin.getId(), record)) return new Actor(admin, true, "Admin");
+    for (String other :
+        List.of(CoopOffices.PRESIDENT, CoopOffices.VICE_PRESIDENT, CoopOffices.TREASURER, CoopOffices.SECRETARY)) {
+      if (other.equals(office)) continue;
+      Member officer = coopOffices.holderOf(cooperativeId, other).orElse(null);
+      if (officer != null && !isPartyTo(officer.getId(), record)) {
+        return new Actor(officer, true, CoopOffices.nameOf(other));
+      }
+    }
+    String borrower = record.getMemberId();
+    if (holder != null && !holder.getId().equals(borrower)) return new Actor(holder, false, null);
+    if (admin != null && !admin.getId().equals(borrower)) return new Actor(admin, true, "Admin");
+    return null;
+  }
+
+  /** Why the caller can't act right now — so the screen says something useful instead of 403. */
+  private String cannotActReason(Member caller, LoanRecord record, boolean approving) {
+    if (caller.getId().equals(record.getMemberId())) return "You can't approve or reject your own loan";
+    String step = officeForStatus(record.getStatus());
+    if (step == null) {
+      return AWAITING_GUARANTOR.equals(record.getStatus())
+          ? "This loan is still waiting for its guarantors to accept"
+          : "This loan is no longer waiting for a decision";
+    }
+    Actor actor = actorFor(record.getCooperativeId(), step, record);
+    String who = actor == null ? "someone else" : actor.member().getFullName();
+    if (isPartyTo(caller.getId(), record)) {
+      return "You're a guarantor on this loan, so " + who + " handles the " + CoopOffices.nameOf(step) + " step";
+    }
+    return approving
+        ? "This loan is waiting for the " + CoopOffices.nameOf(step) + " (" + who + "), not you"
+        : "You can't reject this loan";
   }
 
   /** The borrower, or any of the loan's guarantors. */
@@ -577,13 +616,14 @@ public class LoanSelfServiceController {
   private void notifyApprover(LoanRecord record, String office, String applicantName, String typeName) {
     String officeName = CoopOffices.nameOf(office);
     String link = "/loans/request/" + record.getId();
-    Member holder = eligibleHolder(record.getCooperativeId(), office, record);
-    if (holder != null) {
+    Actor actor = actorFor(record.getCooperativeId(), office, record);
+    if (actor != null) {
       notificationService.notify(
-          holder.getId(),
+          actor.member().getId(),
           "LOAN_APPROVAL_REQUEST",
           "A loan needs your approval",
-          applicantName + "'s " + typeName + " loan is waiting for your approval as " + officeName + ".",
+          applicantName + "'s " + typeName + " loan is waiting for your approval as " + officeName
+              + (actor.covering() ? " (you're covering for that office)." : "."),
           link);
     } else {
       notificationService.notifyCoopAdmin(

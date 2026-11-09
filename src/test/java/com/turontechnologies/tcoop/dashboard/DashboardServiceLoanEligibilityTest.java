@@ -52,7 +52,8 @@ class DashboardServiceLoanEligibilityTest {
             savingsRecordRepository,
             savingsTypeRepository,
             loanRecordRepository,
-            loanTypeRepository);
+            loanTypeRepository,
+            mock(com.turontechnologies.tcoop.coopstaff.CoopPermissions.class));
     Member member =
         new Member(memberId, cooperativeId, "member", "hash", "First", "Last", "member@example.com");
 

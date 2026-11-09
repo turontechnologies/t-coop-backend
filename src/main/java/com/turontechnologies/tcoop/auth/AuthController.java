@@ -74,10 +74,13 @@ public class AuthController {
       roleName = platformRole == null ? null : platformRole.getName();
     } else if (member.getCoopRoleId() != null) {
       CoopRole coopRole = coopRoleRepository.findById(member.getCoopRoleId()).orElse(null);
+      // A role's own grants plus what every member always keeps (their own savings and loans);
+      // an inactive role leaves just that baseline.
       permissionModules =
-          coopRole == null || !"Active".equals(coopRole.getStatus())
-              ? List.of()
-              : coopRole.getPermissions();
+          com.turontechnologies.tcoop.coopstaff.CoopPermissions.withBaseline(
+              coopRole == null || !"Active".equals(coopRole.getStatus())
+                  ? List.of()
+                  : coopRole.getPermissions());
       roleName = coopRole == null ? null : coopRole.getName();
     } else {
       permissionModules = null;

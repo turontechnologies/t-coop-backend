@@ -64,7 +64,9 @@ public class DashboardService {
             SavingsRecordRepository savingsRecordRepository,
             SavingsTypeRepository savingsTypeRepository,
             LoanRecordRepository loanRecordRepository,
-            LoanTypeRepository loanTypeRepository) {
+            LoanTypeRepository loanTypeRepository,
+            com.turontechnologies.tcoop.coopstaff.CoopPermissions coopPermissions) {
+        this.coopPermissions = coopPermissions;
         this.memberRepository = memberRepository;
         this.cooperativeRepository = cooperativeRepository;
         this.savingsRecordRepository = savingsRecordRepository;
@@ -73,12 +75,24 @@ public class DashboardService {
         this.loanTypeRepository = loanTypeRepository;
     }
 
+    private final com.turontechnologies.tcoop.coopstaff.CoopPermissions coopPermissions;
+
     public DashboardSummaryDto getSummary(Member caller) {
-        return switch (caller.getRole()) {
-            case "super_admin" -> platformWideSummary();
-            case "admin" -> cooperativeSummary(caller.getCooperativeId(), "Total");
-            default -> memberSummary(caller.getCooperativeId(), caller.getId(), "My");
-        };
+        if ("super_admin".equals(caller.getRole())) return platformWideSummary();
+        String coopId = caller.getCooperativeId();
+        // Someone holding a co-op role sees co-op-wide figures only if that role lets them see
+        // other members' savings or loans; otherwise just their own, like any member.
+        if (caller.getCoopRoleId() != null && coopId != null) {
+            boolean seesMembers =
+                    coopPermissions.allows(caller, coopId, "Savings & Contributions", "Members Savings", false)
+                            || coopPermissions.allows(caller, coopId, "Loans", "Members Loans", false);
+            return seesMembers
+                    ? cooperativeSummary(coopId, "Total")
+                    : memberSummary(coopId, caller.getId(), "My");
+        }
+        return "admin".equals(caller.getRole())
+                ? cooperativeSummary(coopId, "Total")
+                : memberSummary(coopId, caller.getId(), "My");
     }
 
     private DashboardSummaryDto platformWideSummary() {
