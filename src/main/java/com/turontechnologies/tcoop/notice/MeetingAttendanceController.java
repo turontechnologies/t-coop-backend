@@ -146,6 +146,13 @@ public class MeetingAttendanceController {
     if (!isOfficerOf(caller, notice)) {
       return ResponseEntity.status(403).body(Map.of("error", "Only the co-operative's officers can take attendance"));
     }
+    if (!hasStarted(notice)) {
+      return ResponseEntity.status(409).body(Map.of("error", "Attendance opens when the meeting starts"));
+    }
+    if (hasEnded(notice)) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "Attendance is closed because the meeting duration has elapsed"));
+    }
 
     attendanceService.ensureRegister(notice);
     Map<String, MeetingAttendance> rows =
@@ -221,6 +228,9 @@ public class MeetingAttendanceController {
         notice.getTitle(),
         notice.getMeetingDate() == null ? null : notice.getMeetingDate().toString(),
         notice.getMeetingTime() == null ? null : notice.getMeetingTime().format(HH_MM),
+        notice.getMeetingDurationMinutes(),
+        attendanceEndsAt(notice),
+        canMarkAttendance(notice),
         SummaryDto.of(entries),
         entries);
   }
@@ -260,6 +270,33 @@ public class MeetingAttendanceController {
     if (notice.getMeetingDate() == null) return false;
     LocalTime start = notice.getMeetingTime() != null ? notice.getMeetingTime() : LocalTime.MAX;
     return !LocalDateTime.now(COOP_ZONE).isBefore(notice.getMeetingDate().atTime(start));
+  }
+
+  private boolean hasEnded(Notice notice) {
+    if (notice.getMeetingDate() == null) return false;
+    LocalTime start = notice.getMeetingTime() != null ? notice.getMeetingTime() : LocalTime.MAX;
+    LocalDateTime end =
+        notice
+            .getMeetingDate()
+            .atTime(start)
+            .plusMinutes(notice.getMeetingDurationMinutes());
+    return !LocalDateTime.now(COOP_ZONE).isBefore(end);
+  }
+
+  private boolean canMarkAttendance(Notice notice) {
+    return hasStarted(notice) && !hasEnded(notice);
+  }
+
+  private String attendanceEndsAt(Notice notice) {
+    if (notice.getMeetingDate() == null) return null;
+    LocalTime start = notice.getMeetingTime() != null ? notice.getMeetingTime() : LocalTime.MAX;
+    return notice
+        .getMeetingDate()
+        .atTime(start)
+        .plusMinutes(notice.getMeetingDurationMinutes())
+        .atZone(COOP_ZONE)
+        .toInstant()
+        .toString();
   }
 
   private Notice meetingNotice(UUID id) {

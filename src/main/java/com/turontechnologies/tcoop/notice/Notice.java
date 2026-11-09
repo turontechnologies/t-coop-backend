@@ -40,6 +40,12 @@ public class Notice {
   @Column(name = "meeting_time")
   private LocalTime meetingTime;
 
+  @Column(name = "meeting_duration_minutes")
+  private Integer meetingDurationMinutes = 120;
+
+  @Column(name = "meeting_notice_id")
+  private UUID meetingNoticeId;
+
   @Column(name = "attachment_name")
   private String attachmentName;
 
@@ -106,6 +112,22 @@ public class Notice {
 
   public LocalTime getMeetingTime() {
     return meetingTime;
+  }
+
+  public Integer getMeetingDurationMinutes() {
+    return meetingDurationMinutes == null ? 120 : meetingDurationMinutes;
+  }
+
+  public void setMeetingDurationMinutes(Integer meetingDurationMinutes) {
+    this.meetingDurationMinutes = meetingDurationMinutes;
+  }
+
+  public UUID getMeetingNoticeId() {
+    return meetingNoticeId;
+  }
+
+  public void setMeetingNoticeId(UUID meetingNoticeId) {
+    this.meetingNoticeId = meetingNoticeId;
   }
 
   public void setAttachment(String name, String url, Long size) {

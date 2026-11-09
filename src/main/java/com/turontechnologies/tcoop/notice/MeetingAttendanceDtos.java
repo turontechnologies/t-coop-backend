@@ -80,6 +80,9 @@ public final class MeetingAttendanceDtos {
       String title,
       String meetingDate,
       String meetingTime,
+      int meetingDurationMinutes,
+      String attendanceEndsAt,
+      boolean canMarkAttendance,
       SummaryDto summary,
       List<EntryDto> entries) {}
 

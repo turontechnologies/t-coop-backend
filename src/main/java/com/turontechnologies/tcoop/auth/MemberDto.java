@@ -11,6 +11,7 @@ public record MemberDto(
     String name,
     String email,
     String role,
+    String roleName,
     String avatarUrl,
     String cooperativeId,
     Boolean subscriptionActive,
@@ -32,12 +33,18 @@ public record MemberDto(
   }
 
   public static MemberDto from(Member member, Cooperative coop, List<String> permissionModules) {
+    return from(member, coop, permissionModules, null);
+  }
+
+  public static MemberDto from(
+      Member member, Cooperative coop, List<String> permissionModules, String roleName) {
     boolean isAdmin = "admin".equals(member.getRole()) && coop != null;
     return new MemberDto(
         member.getId(),
         member.getFullName(),
         member.getEmail(),
         member.getRole(),
+        roleName,
         member.getAvatarUrl(),
         member.getCooperativeId(),
         isAdmin ? coop.hasActiveSubscription() : null,

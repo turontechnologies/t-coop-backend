@@ -3,6 +3,7 @@ package com.turontechnologies.tcoop.loan;
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.coopstaff.CoopOffices;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
@@ -65,6 +66,7 @@ public class LoanSelfServiceController {
   private final SavingsRecordRepository savingsRecordRepository;
   private final PlatformSettingsRepository platformSettingsRepository;
   private final CoopOffices coopOffices;
+  private final CoopPermissions coopPermissions;
   private final CoopGatewayResolver gatewayResolver;
   private final PaymentGatewayService paymentGatewayService;
   private final NotificationService notificationService;
@@ -80,6 +82,7 @@ public class LoanSelfServiceController {
       SavingsRecordRepository savingsRecordRepository,
       PlatformSettingsRepository platformSettingsRepository,
       CoopOffices coopOffices,
+      CoopPermissions coopPermissions,
       CoopGatewayResolver gatewayResolver,
       PaymentGatewayService paymentGatewayService,
       NotificationService notificationService,
@@ -93,6 +96,7 @@ public class LoanSelfServiceController {
     this.savingsRecordRepository = savingsRecordRepository;
     this.platformSettingsRepository = platformSettingsRepository;
     this.coopOffices = coopOffices;
+    this.coopPermissions = coopPermissions;
     this.gatewayResolver = gatewayResolver;
     this.paymentGatewayService = paymentGatewayService;
     this.notificationService = notificationService;
@@ -328,7 +332,11 @@ public class LoanSelfServiceController {
     boolean isParty = isPartyTo(caller.getId(), record);
     boolean isStaff =
         "super_admin".equals(caller.getRole()) || "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
-    if (!isParty && !isStaff) {
+    boolean canReadRequests =
+        "super_admin".equals(caller.getRole())
+            || "admin".equals(caller.getRole())
+            || coopPermissions.allows(caller, id, "Loans", "Requests", false);
+    if (!isParty && (!isStaff || !canReadRequests)) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view this loan's approvals"));
     }
 
@@ -384,6 +392,12 @@ public class LoanSelfServiceController {
     LoanRecord record = findRecord(loanId);
     if (record == null || !id.equals(record.getCooperativeId())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
+    }
+
+    if (caller.getCoopRoleId() != null
+        && !coopPermissions.allows(caller, id, "Loans", "Requests", true)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have write access to loan requests"));
     }
 
     boolean approving = "Approved".equals(request.decision());

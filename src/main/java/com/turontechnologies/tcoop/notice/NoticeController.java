@@ -3,6 +3,7 @@ package com.turontechnologies.tcoop.notice;
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.auth.EmailDeliveryException;
 import com.turontechnologies.tcoop.auth.EmailService;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
@@ -57,6 +58,7 @@ public class NoticeController {
   private final EmailService emailService;
   private final SmsService smsService;
   private final MeetingAttendanceService meetingAttendanceService;
+  private final CoopPermissions coopPermissions;
 
   public NoticeController(
       NoticeRepository noticeRepository,
@@ -67,7 +69,8 @@ public class NoticeController {
       NotificationService notificationService,
       EmailService emailService,
       SmsService smsService,
-      MeetingAttendanceService meetingAttendanceService) {
+      MeetingAttendanceService meetingAttendanceService,
+      CoopPermissions coopPermissions) {
     this.noticeRepository = noticeRepository;
     this.noticeReplyRepository = noticeReplyRepository;
     this.memberRepository = memberRepository;
@@ -77,12 +80,16 @@ public class NoticeController {
     this.emailService = emailService;
     this.smsService = smsService;
     this.meetingAttendanceService = meetingAttendanceService;
+    this.coopPermissions = coopPermissions;
   }
 
   @GetMapping("/api/v1/notices")
   public ResponseEntity<?> list(Authentication authentication) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    if (!canReadNoticeBoard(caller)) {
+      return ResponseEntity.status(403).body(Map.of("error", "Your role doesn't have read access to the Notice Board"));
+    }
 
     List<NoticeDto> dtos =
         noticeRepository.findAllByOrderBySendAtDesc(PageRequest.of(0, MAX_ENTRIES)).stream()
@@ -96,6 +103,9 @@ public class NoticeController {
   public ResponseEntity<?> get(Authentication authentication, @PathVariable UUID id) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
+    if (!canReadNoticeBoard(caller)) {
+      return ResponseEntity.status(403).body(Map.of("error", "Your role doesn't have read access to the Notice Board"));
+    }
 
     Notice notice = noticeRepository.findById(id).orElse(null);
     if (notice == null || !isVisible(notice, caller)) {
@@ -111,15 +121,8 @@ public class NoticeController {
       HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
-    if (!canManageNotices(caller)) {
+    if (!canManageNotices(caller) || !canWriteNoticeBoard(caller)) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't create notices"));
-    }
-    // A super admin only ever reaches a co-op's admin directly — it's that admin's own call
-    // whether/how to pass a platform-wide announcement on to their members, not the platform's.
-    // An admin (reaching only their own co-op either way) keeps all three recipient options.
-    if ("super_admin".equals(caller.getRole()) && !"All Admins".equals(request.recipient())) {
-      return ResponseEntity.status(403)
-          .body(Map.of("error", "A super admin can only address co-operative admins, not members directly"));
     }
 
     Set<String> targetCoopIds;
@@ -135,6 +138,51 @@ public class NoticeController {
       // Never trust the client's targetCoopIds for a non-super-admin — an admin can only ever
       // address their own co-op, whatever the request body says.
       targetCoopIds = Set.of(caller.getCooperativeId());
+    }
+
+    String recipient = request.recipient();
+    UUID meetingNoticeId = null;
+    if (request.meetingNoticeId() != null && !request.meetingNoticeId().isBlank()) {
+      if (!"Meeting Minutes".equals(request.type())) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Only meeting minutes can be linked to a meeting"));
+      }
+      try {
+        meetingNoticeId = UUID.fromString(request.meetingNoticeId());
+      } catch (IllegalArgumentException e) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Choose a valid meeting for these minutes"));
+      }
+      Notice meeting = noticeRepository.findById(meetingNoticeId).orElse(null);
+      if (meeting == null || !"Meeting Notice".equals(meeting.getType()) || !meeting.isSent()) {
+        return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that sent meeting"));
+      }
+      if (!"super_admin".equals(caller.getRole())) {
+        String callerCoopId = caller.getCooperativeId();
+        if (callerCoopId == null || !meeting.targetsCoop(callerCoopId)) {
+          return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that sent meeting"));
+        }
+        targetCoopIds = Set.of(callerCoopId);
+      } else {
+        targetCoopIds = new HashSet<>(meeting.getTargetCooperativeIds());
+      }
+      recipient = meeting.getRecipient();
+    }
+
+    // Platform staff normally only pass announcements to co-operative admins. Linked minutes are
+    // the exception: their audience must match the meeting being recorded.
+    if ("super_admin".equals(caller.getRole())
+        && meetingNoticeId == null
+        && !"All Admins".equals(recipient)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "A super admin can only address co-operative admins, not members directly"));
+    }
+
+    boolean hasAttachment = request.attachment() != null;
+    if ((request.message() == null || request.message().isBlank()) && !hasAttachment) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Write the minutes or attach a file"));
+    }
+    if (!"Meeting Minutes".equals(request.type())
+        && (request.message() == null || request.message().isBlank())) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Enter an announcement message"));
     }
 
     // meetingDate is a calendar day (yyyy-MM-dd). A full timestamp is cut to its date part rather
@@ -166,6 +214,13 @@ public class NoticeController {
         return ResponseEntity.badRequest().body(Map.of("error", "Pick a valid meeting time"));
       }
     }
+    int meetingDurationMinutes =
+        request.meetingDurationMinutes() == null ? 120 : request.meetingDurationMinutes();
+    if ("Meeting Notice".equals(request.type())
+        && (meetingDurationMinutes < 1 || meetingDurationMinutes > 1440)) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "Meeting duration must be between 1 minute and 24 hours"));
+    }
     LocalDateTime sendAt;
     try {
       sendAt =
@@ -180,8 +235,8 @@ public class NoticeController {
         new Notice(
             request.type(),
             request.title(),
-            request.message(),
-            request.recipient(),
+            request.message() == null ? "" : request.message().trim(),
+            recipient,
             request.medium(),
             meetingDate,
             sendAt,
@@ -195,6 +250,8 @@ public class NoticeController {
           request.attachment().name(), request.attachment().url(), request.attachment().size());
     }
     notice.setMeetingTime(meetingTime);
+    notice.setMeetingDurationMinutes(meetingDurationMinutes);
+    notice.setMeetingNoticeId(meetingNoticeId);
     noticeRepository.save(notice);
     // A meeting notice gets its attendance register straight away — one line per member it reaches.
     meetingAttendanceService.ensureRegister(notice);
@@ -218,7 +275,7 @@ public class NoticeController {
       Authentication authentication, @PathVariable UUID id, HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
-    if (!canManageNotices(caller)) {
+    if (!canManageNotices(caller) || !canWriteNoticeBoard(caller)) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't manage notices"));
     }
 
@@ -243,7 +300,7 @@ public class NoticeController {
       Authentication authentication, @PathVariable UUID id, HttpServletRequest httpRequest) {
     Member caller = callerOf(authentication);
     if (caller == null) return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
-    if (!canManageNotices(caller)) {
+    if (!canManageNotices(caller) || !canWriteNoticeBoard(caller)) {
       return ResponseEntity.status(403).body(Map.of("error", "Members can't manage notices"));
     }
 
@@ -316,7 +373,22 @@ public class NoticeController {
    * admin — a plain member (no coopRoleId) still can't create/resend/delete, or see anything
    * beyond what's addressed to them. */
   private boolean canManageNotices(Member caller) {
-    return !"member".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    return "super_admin".equals(caller.getRole())
+        || "admin".equals(caller.getRole())
+        || (caller.getCooperativeId() != null
+            && coopPermissions.isStaff(caller, caller.getCooperativeId()));
+  }
+
+  private boolean canReadNoticeBoard(Member caller) {
+    if (caller.getCoopRoleId() == null) return true;
+    return caller.getCooperativeId() != null
+        && coopPermissions.allows(caller, caller.getCooperativeId(), "Notice Board", null, false);
+  }
+
+  private boolean canWriteNoticeBoard(Member caller) {
+    if ("super_admin".equals(caller.getRole()) || "admin".equals(caller.getRole())) return true;
+    return caller.getCooperativeId() != null
+        && coopPermissions.allows(caller, caller.getCooperativeId(), "Notice Board", null, true);
   }
 
   /** Mirrors the frontend's original isNoticeVisibleToRole + noticeTargetsCoop pair, now as the

@@ -63,19 +63,26 @@ public class AuthController {
             ? cooperativeRepository.findById(member.getCooperativeId()).orElse(null)
             : null;
     List<String> permissionModules;
+    String roleName = null;
     if ("support".equals(member.getRole()) && member.getPlatformRoleId() != null) {
+      PlatformRole platformRole =
+          platformRoleRepository.findById(member.getPlatformRoleId()).orElse(null);
       permissionModules =
-          platformRoleRepository
-              .findById(member.getPlatformRoleId())
-              .map(PlatformRole::getPermissions)
-              .orElse(List.of());
+          platformRole == null || !"Active".equals(platformRole.getStatus())
+              ? List.of()
+              : platformRole.getPermissions();
+      roleName = platformRole == null ? null : platformRole.getName();
     } else if (member.getCoopRoleId() != null) {
+      CoopRole coopRole = coopRoleRepository.findById(member.getCoopRoleId()).orElse(null);
       permissionModules =
-          coopRoleRepository.findById(member.getCoopRoleId()).map(CoopRole::getPermissions).orElse(List.of());
+          coopRole == null || !"Active".equals(coopRole.getStatus())
+              ? List.of()
+              : coopRole.getPermissions();
+      roleName = coopRole == null ? null : coopRole.getName();
     } else {
       permissionModules = null;
     }
-    return MemberDto.from(member, coop, permissionModules);
+    return MemberDto.from(member, coop, permissionModules, roleName);
   }
 
   @PostMapping("/api/v1/auth/login")

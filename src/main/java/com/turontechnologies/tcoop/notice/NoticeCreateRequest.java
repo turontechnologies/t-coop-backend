@@ -2,8 +2,8 @@ package com.turontechnologies.tcoop.notice;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /** POST /api/v1/notices. {@code sendAt} is the final computed ISO instant (the frontend resolves
@@ -15,7 +15,7 @@ public record NoticeCreateRequest(
         @Pattern(regexp = "General|Meeting Notice|Meeting Minutes", message = "Select a valid type")
         String type,
     @NotBlank(message = "Enter a title") String title,
-    @NotBlank(message = "Enter an announcement message") String message,
+    @Size(max = 10000, message = "Keep the message under 10,000 characters") String message,
     @NotBlank
         @Pattern(
             regexp = "All Members|All Admins|All Members & Admins",
@@ -27,8 +27,10 @@ public record NoticeCreateRequest(
     String meetingDate,
     /** HH:mm, required for a Meeting Notice. */
     String meetingTime,
+    Integer meetingDurationMinutes,
+    String meetingNoticeId,
     NoticeAttachmentInput attachment,
-    @NotNull(message = "Missing send time") String sendAt,
+    @jakarta.validation.constraints.NotBlank(message = "Missing send time") String sendAt,
     @NotEmpty(message = "Select at least one co-operative") List<String> targetCoopIds) {
 
   public record NoticeAttachmentInput(String name, String url, Long size) {}

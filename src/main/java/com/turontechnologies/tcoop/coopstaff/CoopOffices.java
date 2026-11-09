@@ -78,8 +78,7 @@ public class CoopOffices {
 
   /** The active member currently holding this office, if anyone. */
   public Optional<Member> holderOf(String cooperativeId, String office) {
-    return coopRoleRepository
-        .findByCooperativeIdAndOffice(cooperativeId, office)
+    return roleForOffice(cooperativeId, office)
         .filter(role -> "Active".equals(role.getStatus()))
         .flatMap(
             role ->
@@ -95,7 +94,25 @@ public class CoopOffices {
         .findById(member.getCoopRoleId())
         .filter(role -> "Active".equals(role.getStatus()))
         .filter(role -> role.getCooperativeId().equals(member.getCooperativeId()))
-        .map(CoopRole::getOffice)
+        .map(role -> role.getOffice() != null ? role.getOffice() : officeOfName(role.getName()))
+        .orElse(null);
+  }
+
+  private Optional<CoopRole> roleForOffice(String cooperativeId, String office) {
+    Optional<CoopRole> configured =
+        coopRoleRepository.findByCooperativeIdAndOffice(cooperativeId, office);
+    if (configured.isPresent()) return configured;
+    String name = NAMES.get(office);
+    return name == null
+        ? Optional.empty()
+        : coopRoleRepository.findByCooperativeIdAndNameIgnoreCase(cooperativeId, name);
+  }
+
+  private static String officeOfName(String name) {
+    return NAMES.entrySet().stream()
+        .filter(entry -> entry.getValue().equalsIgnoreCase(name))
+        .map(Map.Entry::getKey)
+        .findFirst()
         .orElse(null);
   }
 }
