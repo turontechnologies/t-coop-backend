@@ -12,6 +12,7 @@ public record NoticeDto(
     String recipient,
     String medium,
     String meetingDate,
+    String meetingTime,
     NoticeAttachmentDto attachment,
     String sendAt,
     String status,
@@ -35,6 +36,9 @@ public record NoticeDto(
         notice.getRecipient(),
         notice.getMedium(),
         notice.getMeetingDate() == null ? null : notice.getMeetingDate().toString(),
+        notice.getMeetingTime() == null
+            ? null
+            : notice.getMeetingTime().format(DateTimeFormatter.ofPattern("HH:mm")),
         attachment,
         notice.getSendAt().atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT),
         notice.isSent() ? "Sent" : "Scheduled",

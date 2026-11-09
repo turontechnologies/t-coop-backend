@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
@@ -55,6 +56,7 @@ public class NoticeController {
   private final NotificationService notificationService;
   private final EmailService emailService;
   private final SmsService smsService;
+  private final MeetingAttendanceService meetingAttendanceService;
 
   public NoticeController(
       NoticeRepository noticeRepository,
@@ -64,7 +66,8 @@ public class NoticeController {
       AuditLogService auditLogService,
       NotificationService notificationService,
       EmailService emailService,
-      SmsService smsService) {
+      SmsService smsService,
+      MeetingAttendanceService meetingAttendanceService) {
     this.noticeRepository = noticeRepository;
     this.noticeReplyRepository = noticeReplyRepository;
     this.memberRepository = memberRepository;
@@ -73,6 +76,7 @@ public class NoticeController {
     this.notificationService = notificationService;
     this.emailService = emailService;
     this.smsService = smsService;
+    this.meetingAttendanceService = meetingAttendanceService;
   }
 
   @GetMapping("/api/v1/notices")
@@ -151,6 +155,17 @@ public class NoticeController {
     if ("Meeting Notice".equals(request.type()) && meetingDate == null) {
       return ResponseEntity.badRequest().body(Map.of("error", "Enter the meeting date"));
     }
+    LocalTime meetingTime = null;
+    if ("Meeting Notice".equals(request.type())) {
+      if (request.meetingTime() == null || request.meetingTime().isBlank()) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Pick the meeting time"));
+      }
+      try {
+        meetingTime = LocalTime.parse(request.meetingTime().trim());
+      } catch (DateTimeParseException e) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Pick a valid meeting time"));
+      }
+    }
     LocalDateTime sendAt;
     try {
       sendAt =
@@ -179,7 +194,10 @@ public class NoticeController {
       notice.setAttachment(
           request.attachment().name(), request.attachment().url(), request.attachment().size());
     }
+    notice.setMeetingTime(meetingTime);
     noticeRepository.save(notice);
+    // A meeting notice gets its attendance register straight away — one line per member it reaches.
+    meetingAttendanceService.ensureRegister(notice);
 
     auditLogService.log(
         caller.getId(), caller.getRole(), "Notices", "Create", notice.getTitle(), "Success", httpRequest);

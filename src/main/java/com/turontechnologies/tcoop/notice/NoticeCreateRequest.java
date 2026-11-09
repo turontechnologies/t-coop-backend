@@ -25,6 +25,8 @@ public record NoticeCreateRequest(
         @Pattern(regexp = "Email|SMS|Email & SMS", message = "Select a valid medium")
         String medium,
     String meetingDate,
+    /** HH:mm, required for a Meeting Notice. */
+    String meetingTime,
     NoticeAttachmentInput attachment,
     @NotNull(message = "Missing send time") String sendAt,
     @NotEmpty(message = "Select at least one co-operative") List<String> targetCoopIds) {

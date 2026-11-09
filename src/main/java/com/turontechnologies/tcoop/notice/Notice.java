@@ -10,6 +10,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -34,6 +35,10 @@ public class Notice {
 
   @Column(name = "meeting_date")
   private LocalDate meetingDate;
+
+  /** Local wall-clock time of the meeting (the co-op's own time). */
+  @Column(name = "meeting_time")
+  private LocalTime meetingTime;
 
   @Column(name = "attachment_name")
   private String attachmentName;
@@ -93,6 +98,14 @@ public class Notice {
     this.createdByRole = createdByRole;
     this.createdAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
     this.targetCooperativeIds = new HashSet<>(targetCooperativeIds);
+  }
+
+  public void setMeetingTime(LocalTime meetingTime) {
+    this.meetingTime = meetingTime;
+  }
+
+  public LocalTime getMeetingTime() {
+    return meetingTime;
   }
 
   public void setAttachment(String name, String url, Long size) {

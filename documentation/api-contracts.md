@@ -673,6 +673,24 @@ The final installment moves the loan to `Completed`. The repayment *schedule* is
 clients derive it from the loan's `amount`/`numberOfRepayments`/`totalRepayment`/`date`/
 `repaymentsMade` (`generateRepaymentSchedule` in the web app's `loans-data.ts`).
 
+### `POST /cooperatives/:id/loans/import` (admin brings in an existing loan) — **built** (`LoanImportController`)
+
+Co-op admin, or co-op staff with write access to Loans → Members Loans (else 403). One loan per call:
+
+```json
+{ "memberId": "MB-0003", "loanTypeId": "…", "amount": 30000, "loanMode": "TimesTwo",
+  "guarantorMemberId": "MB-0004", "startDate": "2026-09-01", "repaymentsMade": 1 }
+```
+
+`loanMode` defaults to `TimesTwo`; `guarantorMemberId` is optional (must be another member of the
+co-op when given, ignored for `Within`); `startDate` (`yyyy-MM-dd`, not in the future) defaults to
+today; `repaymentsMade` 0..the type's installments. Terms are computed from the loan type exactly as
+for an application. The loan is created `Active` (`Completed` when fully repaid) with
+`disbursementStatus: "Imported"` — no guarantor step, no officer approvals, no payout, no savings
+ledger entries — plus one `Manual Upload` repayment row (`transactionId` `IMPORT-…`) per installment
+already paid, dated on its due date. Returns the loan record. Errors: 404 unknown member/type, 400 bad
+mode/date/repayment count.
+
 ---
 
 ## 7. Notices — **built** (2026-08-24)
