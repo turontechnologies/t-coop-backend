@@ -1,6 +1,7 @@
 package com.turontechnologies.tcoop.savings;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
@@ -39,18 +40,21 @@ public class SavingsController {
   private final SavingsTypeRepository savingsTypeRepository;
   private final SavingsRecordRepository savingsRecordRepository;
   private final AuditLogService auditLogService;
+  private final CoopPermissions coopPermissions;
 
   public SavingsController(
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       SavingsTypeRepository savingsTypeRepository,
       SavingsRecordRepository savingsRecordRepository,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      CoopPermissions coopPermissions) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.savingsTypeRepository = savingsTypeRepository;
     this.savingsRecordRepository = savingsRecordRepository;
     this.auditLogService = auditLogService;
+    this.coopPermissions = coopPermissions;
   }
 
   /** One row per savings type, for the member-facing deposit picker and co-op oversight. */
@@ -59,14 +63,18 @@ public class SavingsController {
     var access = requireTypeListAccess(authentication, id);
     if (access.error() != null) return access.error();
     String cooperativeId = access.cooperativeId();
+    Member caller = access.caller();
+    if (coopPermissions.isStaff(caller, cooperativeId)
+        && !coopPermissions.allows(caller, cooperativeId, "Savings & Contributions", null, false)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have read access to Savings & Contributions"));
+    }
     if (!cooperativeRepository.existsById(cooperativeId)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
 
     boolean isStaff =
-        "admin".equals(access.caller().getRole())
-            || "super_admin".equals(access.caller().getRole())
-            || access.caller().getCoopRoleId() != null;
+        "super_admin".equals(caller.getRole()) || coopPermissions.isStaff(caller, cooperativeId);
     List<SavingsType> types =
         savingsTypeRepository.findAllByCooperativeIdOrderByCreatedAtAsc(cooperativeId);
     List<SavingsRecord> records =
@@ -104,6 +112,7 @@ public class SavingsController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    if (!canWriteSavingsSettings(access.caller(), id)) return noSavingsSettingsWriteAccess();
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
@@ -126,6 +135,7 @@ public class SavingsController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    if (!canWriteSavingsSettings(access.caller(), id)) return noSavingsSettingsWriteAccess();
 
     SavingsType type = findType(typeId, id);
     if (type == null) {
@@ -150,6 +160,7 @@ public class SavingsController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    if (!canWriteSavingsSettings(access.caller(), id)) return noSavingsSettingsWriteAccess();
 
     SavingsType type = findType(typeId, id);
     if (type == null) {
@@ -214,11 +225,20 @@ public class SavingsController {
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
+    Member caller = access.caller();
     boolean isStaff =
-        "admin".equals(access.caller().getRole())
-            || "super_admin".equals(access.caller().getRole())
-            || access.caller().getCoopRoleId() != null;
+        "super_admin".equals(caller.getRole()) || coopPermissions.isStaff(caller, id);
     String effectiveMemberId = isStaff ? memberId : access.caller().getId();
+    if (coopPermissions.isStaff(caller, id)) {
+      String tab =
+          effectiveMemberId != null && effectiveMemberId.equals(caller.getId())
+              ? "My Savings"
+              : "Members Savings";
+      if (!coopPermissions.allows(caller, id, "Savings & Contributions", tab, false)) {
+        return ResponseEntity.status(403)
+            .body(Map.of("error", "Your role doesn't have read access to this savings view"));
+      }
+    }
 
     Map<UUID, String> typeNames = typeNamesFor(id);
     Map<String, String> memberNames = memberNamesFor(id);
@@ -254,13 +274,20 @@ public class SavingsController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that savings record"));
     }
     boolean isStaff =
-        "admin".equals(caller.getRole())
-            || "super_admin".equals(caller.getRole())
-            || caller.getCoopRoleId() != null;
+        "super_admin".equals(caller.getRole())
+            || coopPermissions.isStaff(caller, record.getCooperativeId());
     boolean ownsRecord = record.getMemberId().equals(caller.getId());
     boolean staffOwnsCoop = isStaff && record.getCooperativeId().equals(caller.getCooperativeId());
     if (!"super_admin".equals(caller.getRole()) && !ownsRecord && !staffOwnsCoop) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view that savings record"));
+    }
+    if (coopPermissions.isStaff(caller, record.getCooperativeId())) {
+      String tab = ownsRecord ? "My Savings" : "Members Savings";
+      if (!coopPermissions.allows(
+          caller, record.getCooperativeId(), "Savings & Contributions", tab, false)) {
+        return ResponseEntity.status(403)
+            .body(Map.of("error", "Your role doesn't have read access to this savings view"));
+      }
     }
 
     Member member = memberRepository.findById(record.getMemberId()).orElse(null);
@@ -314,11 +341,22 @@ public class SavingsController {
     if (caller == null) {
       return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
     }
+
     if (!"super_admin".equals(caller.getRole())) {
       return ResponseEntity.status(403)
           .body(Map.of("error", "Only a super admin can view savings oversight"));
     }
     return null;
+  }
+
+  private boolean canWriteSavingsSettings(Member caller, String cooperativeId) {
+    return "super_admin".equals(caller.getRole())
+        || coopPermissions.allows(caller, cooperativeId, "Settings", "Savings Settings", true);
+  }
+
+  private ResponseEntity<?> noSavingsSettingsWriteAccess() {
+    return ResponseEntity.status(403)
+        .body(Map.of("error", "Your role doesn't have write access to Savings Settings"));
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
@@ -353,7 +391,7 @@ public class SavingsController {
               .body(Map.of("error", "Your account isn't associated with a co-operative")));
     }
 
-    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    boolean isCoopStaff = coopPermissions.isStaff(caller, callerCooperativeId);
     if (isCoopStaff && !requestedCooperativeId.equals(callerCooperativeId)) {
       return new TypeListAccess(
           null,
@@ -396,8 +434,7 @@ public class SavingsController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
-    if (isCoopStaff && cooperativeId.equals(caller.getCooperativeId())) {
+    if (coopPermissions.isStaff(caller, cooperativeId)) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

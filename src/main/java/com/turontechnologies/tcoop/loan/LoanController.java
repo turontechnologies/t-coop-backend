@@ -1,6 +1,7 @@
 package com.turontechnologies.tcoop.loan;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
@@ -37,6 +38,7 @@ public class LoanController {
   private final LoanRecordRepository loanRecordRepository;
   private final LoanGuarantorRepository loanGuarantorRepository;
   private final AuditLogService auditLogService;
+  private final CoopPermissions coopPermissions;
 
   public LoanController(
       CooperativeRepository cooperativeRepository,
@@ -44,13 +46,15 @@ public class LoanController {
       LoanTypeRepository loanTypeRepository,
       LoanRecordRepository loanRecordRepository,
       LoanGuarantorRepository loanGuarantorRepository,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      CoopPermissions coopPermissions) {
     this.loanGuarantorRepository = loanGuarantorRepository;
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.loanTypeRepository = loanTypeRepository;
     this.loanRecordRepository = loanRecordRepository;
     this.auditLogService = auditLogService;
+    this.coopPermissions = coopPermissions;
   }
 
   /** One row per loan type, for the member-facing application picker and co-op oversight. */
@@ -59,14 +63,19 @@ public class LoanController {
     var access = requireTypeListAccess(authentication, id);
     if (access.error() != null) return access.error();
     String cooperativeId = access.cooperativeId();
+    Member caller = access.caller();
+    if (coopPermissions.isStaff(caller, cooperativeId)
+        && !coopPermissions.allows(caller, cooperativeId, "Loans", null, false)
+        && !coopPermissions.allows(caller, cooperativeId, "Settings", "Loan Settings", false)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have read access to Loans"));
+    }
     if (!cooperativeRepository.existsById(cooperativeId)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
 
     boolean isStaff =
-        "admin".equals(access.caller().getRole())
-            || "super_admin".equals(access.caller().getRole())
-            || access.caller().getCoopRoleId() != null;
+        "super_admin".equals(caller.getRole()) || coopPermissions.isStaff(caller, cooperativeId);
     List<LoanType> types =
         loanTypeRepository.findAllByCooperativeIdOrderByCreatedAtAsc(cooperativeId);
     List<LoanRecord> records =
@@ -103,6 +112,8 @@ public class LoanController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied = requireLoanSettingsWrite(access.caller(), id);
+    if (denied != null) return denied;
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
@@ -135,6 +146,8 @@ public class LoanController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied = requireLoanSettingsWrite(access.caller(), id);
+    if (denied != null) return denied;
 
     LoanType type = findType(typeId, id);
     if (type == null) {
@@ -167,6 +180,8 @@ public class LoanController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied = requireLoanSettingsWrite(access.caller(), id);
+    if (denied != null) return denied;
 
     LoanType type = findType(typeId, id);
     if (type == null) {
@@ -223,18 +238,29 @@ public class LoanController {
       @RequestParam(required = false) LocalDate to) {
     var access = requireMemberOfCoop(authentication, id);
     if (access.error() != null) return access.error();
+    Member caller = access.caller();
+    if (coopPermissions.isStaff(caller, id)) {
+      boolean ownRecords = caller.getId().equals(memberId);
+      boolean allowed =
+          ownRecords
+              ? coopPermissions.allows(caller, id, "Loans", "My Loans", false)
+              : coopPermissions.allows(caller, id, "Loans", "Requests", false)
+                  || coopPermissions.allows(caller, id, "Loans", "Members Loans", false);
+      if (!allowed) {
+        return ResponseEntity.status(403)
+            .body(Map.of("error", "Your role doesn't have read access to these loans"));
+      }
+    }
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
     boolean isStaff =
-        "admin".equals(access.caller().getRole())
-            || "super_admin".equals(access.caller().getRole())
-            || access.caller().getCoopRoleId() != null;
-    String effectiveMemberId = isStaff ? memberId : access.caller().getId();
+        "super_admin".equals(caller.getRole()) || coopPermissions.isStaff(caller, id);
+    String effectiveMemberId = isStaff ? memberId : caller.getId();
     // A plain member also needs to see loans where they're only the named guarantor, not the
     // applicant — otherwise a guarantor has no way to find the request they were notified about.
     // Only applies to a member's own unfiltered view, not a staff member's memberId query param.
-    String guarantorMatchId = isStaff ? null : access.caller().getId();
+    String guarantorMatchId = isStaff ? null : caller.getId();
     java.util.Set<UUID> guaranteedLoanIds =
         guarantorMatchId == null
             ? java.util.Set.of()
@@ -290,15 +316,21 @@ public class LoanController {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan record"));
     }
     boolean isStaff =
-        "admin".equals(caller.getRole())
-            || "super_admin".equals(caller.getRole())
-            || caller.getCoopRoleId() != null;
+        "super_admin".equals(caller.getRole())
+            || coopPermissions.isStaff(caller, record.getCooperativeId());
     boolean isParty =
         record.getMemberId().equals(caller.getId())
             || caller.getId().equals(record.getGuarantorId())
             || loanGuarantorRepository.existsByLoanIdAndMemberId(record.getId(), caller.getId());
-    boolean staffOwnsCoop = isStaff && record.getCooperativeId().equals(caller.getCooperativeId());
-    if (!"super_admin".equals(caller.getRole()) && !isParty && !staffOwnsCoop) {
+    boolean staffHasLoanAccess =
+        isStaff
+            && (coopPermissions.allows(caller, record.getCooperativeId(), "Loans", "Requests", false)
+                || coopPermissions.allows(
+                    caller, record.getCooperativeId(), "Loans", "Members Loans", false)
+                || (record.getMemberId().equals(caller.getId())
+                    && coopPermissions.allows(
+                        caller, record.getCooperativeId(), "Loans", "My Loans", false)));
+    if (!"super_admin".equals(caller.getRole()) && !isParty && !staffHasLoanAccess) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view that loan record"));
     }
 
@@ -342,11 +374,21 @@ public class LoanController {
     if (caller == null) {
       return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
     }
+
     if (!"super_admin".equals(caller.getRole())) {
       return ResponseEntity.status(403)
           .body(Map.of("error", "Only a super admin can view loans oversight"));
     }
     return null;
+  }
+
+  private ResponseEntity<?> requireLoanSettingsWrite(Member caller, String cooperativeId) {
+    if ("super_admin".equals(caller.getRole())
+        || coopPermissions.allows(caller, cooperativeId, "Settings", "Loan Settings", true)) {
+      return null;
+    }
+    return ResponseEntity.status(403)
+        .body(Map.of("error", "Your role doesn't have write access to Loan Settings"));
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
@@ -381,7 +423,7 @@ public class LoanController {
               .body(Map.of("error", "Your account isn't associated with a co-operative")));
     }
 
-    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    boolean isCoopStaff = coopPermissions.isStaff(caller, callerCooperativeId);
     if (isCoopStaff && !requestedCooperativeId.equals(callerCooperativeId)) {
       return new TypeListAccess(
           null,
@@ -424,8 +466,7 @@ public class LoanController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
-    if (isCoopStaff && cooperativeId.equals(caller.getCooperativeId())) {
+    if (coopPermissions.isStaff(caller, cooperativeId)) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

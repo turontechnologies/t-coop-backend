@@ -4,6 +4,7 @@ import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.coopstaff.CoopOffices;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.loan.LoanRecordRepository;
 import com.turontechnologies.tcoop.loan.LoanType;
 import com.turontechnologies.tcoop.loan.LoanTypeRepository;
@@ -70,6 +71,7 @@ public class CooperativeController {
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
   private final CoopOffices coopOffices;
+  private final CoopPermissions coopPermissions;
   private final Cloudinary cloudinary;
 
   public CooperativeController(
@@ -86,6 +88,7 @@ public class CooperativeController {
       AuditLogService auditLogService,
       NotificationService notificationService,
       CoopOffices coopOffices,
+      CoopPermissions coopPermissions,
       Cloudinary cloudinary) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
@@ -100,6 +103,7 @@ public class CooperativeController {
     this.auditLogService = auditLogService;
     this.notificationService = notificationService;
     this.coopOffices = coopOffices;
+    this.coopPermissions = coopPermissions;
     this.cloudinary = cloudinary;
   }
 
@@ -143,6 +147,9 @@ public class CooperativeController {
       Authentication authentication, @PathVariable String id, @RequestParam("file") MultipartFile file) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Settings", "Co-operative Settings", true);
+    if (denied != null) return denied;
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -177,6 +184,15 @@ public class CooperativeController {
   public ResponseEntity<?> get(Authentication authentication, @PathVariable String id) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    if (!"super_admin".equals(access.caller().getRole())
+        && !coopPermissions.allows(
+            access.caller(), id, "Settings", "Co-operative Settings", false)
+        && !coopPermissions.allows(access.caller(), id, "Savings & Contributions", null, false)
+        && !coopPermissions.allows(access.caller(), id, "Loans", null, false)
+        && !coopPermissions.allows(access.caller(), id, "Members Directory", null, false)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have read access to co-operative details"));
+    }
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -194,6 +210,16 @@ public class CooperativeController {
   public ResponseEntity<?> members(Authentication authentication, @PathVariable String id) {
     var access = requireCoopReadAccess(authentication, id);
     if (access.error() != null) return access.error();
+    if (coopPermissions.isStaff(access.caller(), id)
+        && !coopPermissions.allows(
+            access.caller(), id, "Members Directory", null, false)
+        && !coopPermissions.allows(
+            access.caller(), id, "Savings & Contributions", "Members Savings", false)
+        && !coopPermissions.allows(access.caller(), id, "Loans", "Requests", false)
+        && !coopPermissions.allows(access.caller(), id, "Loans", "Members Loans", false)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have read access to the member directory"));
+    }
     if (!cooperativeRepository.existsById(id)) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
@@ -213,6 +239,12 @@ public class CooperativeController {
       Authentication authentication, @PathVariable String id, @PathVariable String memberId) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    if (!"super_admin".equals(access.caller().getRole())
+        && !coopPermissions.allows(access.caller(), id, "Loans", "Requests", false)
+        && !coopPermissions.allows(access.caller(), id, "Members Directory", null, false)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have read access to these guarantor records"));
+    }
 
     Member member = memberRepository.findById(memberId).orElse(null);
     if (member == null || !id.equals(member.getCooperativeId())) {
@@ -231,6 +263,9 @@ public class CooperativeController {
   public ResponseEntity<?> nextMemberId(Authentication authentication, @PathVariable String id) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Members Directory", null, true);
+    if (denied != null) return denied;
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -262,6 +297,9 @@ public class CooperativeController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Members Directory", null, true);
+    if (denied != null) return denied;
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
@@ -364,6 +402,9 @@ public class CooperativeController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Members Directory", null, true);
+    if (denied != null) return denied;
 
     Member member = memberRepository.findById(memberId).orElse(null);
     if (member == null || !id.equals(member.getCooperativeId())) {
@@ -429,6 +470,15 @@ public class CooperativeController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Members Directory", null, true);
+    if (denied != null) return denied;
+    if (!"super_admin".equals(access.caller().getRole())
+        && (!"admin".equals(access.caller().getRole())
+            || !id.equals(access.caller().getId()))) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Only this co-operative's admin can transfer its administration"));
+    }
 
     Member member = memberRepository.findById(memberId).orElse(null);
     if (member == null || !id.equals(member.getCooperativeId())) {
@@ -675,6 +725,9 @@ public class CooperativeController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Settings", "Co-operative Settings", true);
+    if (denied != null) return denied;
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -999,6 +1052,9 @@ public class CooperativeController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied =
+        requireCoopPermission(access.caller(), id, "Settings", "Co-operative Settings", true);
+    if (denied != null) return denied;
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
     if (coop == null) {
@@ -1130,11 +1186,22 @@ public class CooperativeController {
     if (caller == null) {
       return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
     }
+
     if (!"super_admin".equals(caller.getRole())) {
       return ResponseEntity.status(403)
           .body(Map.of("error", "Only a super admin can manage co-operatives"));
     }
     return null;
+  }
+
+  private ResponseEntity<?> requireCoopPermission(
+      Member caller, String cooperativeId, String module, String tab, boolean write) {
+    if ("super_admin".equals(caller.getRole())
+        || coopPermissions.allows(caller, cooperativeId, module, tab, write)) {
+      return null;
+    }
+    return ResponseEntity.status(403)
+        .body(Map.of("error", "Your role doesn't have the required access for this action"));
   }
 
   private record CoopAccess(Member caller, ResponseEntity<?> error) {}
@@ -1195,8 +1262,7 @@ public class CooperativeController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
-    if (isCoopStaff && cooperativeId.equals(caller.getCooperativeId())) {
+    if (coopPermissions.isStaff(caller, cooperativeId)) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

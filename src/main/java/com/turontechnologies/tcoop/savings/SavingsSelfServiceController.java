@@ -2,6 +2,7 @@ package com.turontechnologies.tcoop.savings;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
@@ -49,6 +50,7 @@ public class SavingsSelfServiceController {
   private final CoopGatewayResolver gatewayResolver;
   private final PaymentGatewayService paymentGatewayService;
   private final AuditLogService auditLogService;
+  private final CoopPermissions coopPermissions;
 
   public SavingsSelfServiceController(
       CooperativeRepository cooperativeRepository,
@@ -60,7 +62,8 @@ public class SavingsSelfServiceController {
       PlatformSettingsRepository platformSettingsRepository,
       CoopGatewayResolver gatewayResolver,
       PaymentGatewayService paymentGatewayService,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      CoopPermissions coopPermissions) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.savingsTypeRepository = savingsTypeRepository;
@@ -71,6 +74,7 @@ public class SavingsSelfServiceController {
     this.gatewayResolver = gatewayResolver;
     this.paymentGatewayService = paymentGatewayService;
     this.auditLogService = auditLogService;
+    this.coopPermissions = coopPermissions;
   }
 
   @PostMapping("/api/v1/cooperatives/{id}/savings/deposits/initialize")
@@ -81,6 +85,8 @@ public class SavingsSelfServiceController {
     var access = requireMemberOfCoop(authentication, id);
     if (access.error() != null) return access.error();
     Member member = access.caller();
+    ResponseEntity<?> denied = requireSavingsWrite(member, id, "My Savings");
+    if (denied != null) return denied;
 
     SavingsType type = findType(request.savingsTypeId(), id);
     if (type == null || !"Active".equals(type.getStatus())) {
@@ -127,6 +133,8 @@ public class SavingsSelfServiceController {
     var access = requireMemberOfCoop(authentication, id);
     if (access.error() != null) return access.error();
     Member member = access.caller();
+    ResponseEntity<?> denied = requireSavingsWrite(member, id, "My Savings");
+    if (denied != null) return denied;
 
     SavingsPaymentIntent intent = intentRepository.findById(request.reference()).orElse(null);
     if (intent == null || !intent.getCooperativeId().equals(id) || !intent.getMemberId().equals(member.getId())) {
@@ -197,6 +205,8 @@ public class SavingsSelfServiceController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied = requireSavingsWrite(access.caller(), id, "Members Savings");
+    if (denied != null) return denied;
 
     Member target = memberRepository.findById(request.memberId()).orElse(null);
     if (target == null || !id.equals(target.getCooperativeId())) {
@@ -245,6 +255,8 @@ public class SavingsSelfServiceController {
     var access = requireMemberOfCoop(authentication, id);
     if (access.error() != null) return access.error();
     Member member = access.caller();
+    ResponseEntity<?> denied = requireSavingsWrite(member, id, "My Savings");
+    if (denied != null) return denied;
 
     SavingsType type = null;
     BigDecimal available;
@@ -306,8 +318,19 @@ public class SavingsSelfServiceController {
     if (access.error() != null) return access.error();
     Member caller = access.caller();
 
-    boolean isStaff = "admin".equals(caller.getRole()) || "super_admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    boolean isStaff =
+        "super_admin".equals(caller.getRole()) || coopPermissions.isStaff(caller, id);
     String effectiveMemberId = isStaff ? memberId : caller.getId();
+    if (coopPermissions.isStaff(caller, id)) {
+      String tab =
+          effectiveMemberId != null && effectiveMemberId.equals(caller.getId())
+              ? "My Savings"
+              : "Request";
+      if (!coopPermissions.allows(caller, id, "Savings & Contributions", tab, false)) {
+        return ResponseEntity.status(403)
+            .body(Map.of("error", "Your role doesn't have read access to this savings view"));
+      }
+    }
 
     Map<UUID, String> typeNames = typeNamesFor(id);
     Map<String, String> memberNames = memberNamesFor(id);
@@ -340,6 +363,8 @@ public class SavingsSelfServiceController {
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    ResponseEntity<?> denied = requireSavingsWrite(access.caller(), id, "Request");
+    if (denied != null) return denied;
 
     SavingsRequest savingsRequest = findRequest(requestId);
     if (savingsRequest == null || !id.equals(savingsRequest.getCooperativeId())) {
@@ -476,6 +501,16 @@ public class SavingsSelfServiceController {
     return value != null && !value.isBlank();
   }
 
+  private ResponseEntity<?> requireSavingsWrite(Member caller, String cooperativeId, String tab) {
+    if (!coopPermissions.isStaff(caller, cooperativeId)
+        || coopPermissions.allows(
+            caller, cooperativeId, "Savings & Contributions", tab, true)) {
+      return null;
+    }
+    return ResponseEntity.status(403)
+        .body(Map.of("error", "Your role doesn't have write access to this savings action"));
+  }
+
   private PlatformSettings platformSettings() {
     return platformSettingsRepository
         .findById(SETTINGS_SINGLETON_ID)
@@ -512,7 +547,7 @@ public class SavingsSelfServiceController {
     if ("super_admin".equals(caller.getRole())) {
       return new CoopAccess(caller, null);
     }
-    boolean isCoopStaff = "admin".equals(caller.getRole()) || caller.getCoopRoleId() != null;
+    boolean isCoopStaff = coopPermissions.isStaff(caller, cooperativeId);
     if (isCoopStaff && cooperativeId.equals(caller.getCooperativeId())) {
       return new CoopAccess(caller, null);
     }

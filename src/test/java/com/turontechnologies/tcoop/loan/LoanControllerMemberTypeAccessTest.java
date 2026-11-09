@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
@@ -58,7 +59,8 @@ class LoanControllerMemberTypeAccessTest {
             loanTypeRepository,
             loanRecordRepository,
             mock(LoanGuarantorRepository.class),
-            mock(AuditLogService.class));
+            mock(AuditLogService.class),
+            mock(CoopPermissions.class));
 
     var response = controller.types(authentication, cooperativeId);
 
@@ -93,7 +95,8 @@ class LoanControllerMemberTypeAccessTest {
             loanTypeRepository,
             mock(LoanRecordRepository.class),
             mock(LoanGuarantorRepository.class),
-            mock(AuditLogService.class));
+            mock(AuditLogService.class),
+            mock(CoopPermissions.class));
 
     var response = controller.types(authentication, "coop-0003");
 
@@ -120,6 +123,9 @@ class LoanControllerMemberTypeAccessTest {
     when(memberRepository.findById("COOP-0002")).thenReturn(Optional.of(admin));
     when(admin.getRole()).thenReturn("admin");
     when(admin.getCooperativeId()).thenReturn(cooperativeId);
+    CoopPermissions coopPermissions = mock(CoopPermissions.class);
+    when(coopPermissions.isStaff(admin, cooperativeId)).thenReturn(true);
+    when(coopPermissions.allows(admin, cooperativeId, "Loans", null, false)).thenReturn(true);
     when(cooperativeRepository.existsById(cooperativeId)).thenReturn(true);
     when(loanTypeRepository.findAllByCooperativeIdOrderByCreatedAtAsc(cooperativeId))
         .thenReturn(List.of(activeType, inactiveType));
@@ -137,7 +143,8 @@ class LoanControllerMemberTypeAccessTest {
             loanTypeRepository,
             mock(LoanRecordRepository.class),
             mock(LoanGuarantorRepository.class),
-            mock(AuditLogService.class));
+            mock(AuditLogService.class),
+            coopPermissions);
 
     var response = controller.types(authentication, cooperativeId);
 
