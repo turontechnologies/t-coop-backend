@@ -21,7 +21,10 @@ public class MeetingAttendance {
   public static final String PHYSICAL = "Physical";
   public static final String ONLINE = "Online";
   public static final String NOT_ATTENDING = "NotAttending";
+  /** Present in person. */
   public static final String PRESENT = "Present";
+  /** Present, joined online. */
+  public static final String PRESENT_ONLINE = "PresentOnline";
   public static final String ABSENT = "Absent";
 
   @Id private UUID id;

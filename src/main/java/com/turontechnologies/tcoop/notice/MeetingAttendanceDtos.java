@@ -49,16 +49,20 @@ public final class MeetingAttendanceDtos {
       int online,
       int notAttending,
       int noResponse,
+      /** Everyone present, in person or online. */
       int present,
+      int presentInPerson,
+      int presentOnline,
       int absent,
       int unmarked) {
     static SummaryDto of(List<EntryDto> entries) {
-      int physical = 0, online = 0, notAttending = 0, present = 0, absent = 0;
+      int physical = 0, online = 0, notAttending = 0, inPerson = 0, presentOnline = 0, absent = 0;
       for (EntryDto e : entries) {
         if (MeetingAttendance.PHYSICAL.equals(e.response())) physical++;
         else if (MeetingAttendance.ONLINE.equals(e.response())) online++;
         else if (MeetingAttendance.NOT_ATTENDING.equals(e.response())) notAttending++;
-        if (MeetingAttendance.PRESENT.equals(e.attendance())) present++;
+        if (MeetingAttendance.PRESENT.equals(e.attendance())) inPerson++;
+        else if (MeetingAttendance.PRESENT_ONLINE.equals(e.attendance())) presentOnline++;
         else if (MeetingAttendance.ABSENT.equals(e.attendance())) absent++;
       }
       int invited = entries.size();
@@ -68,9 +72,11 @@ public final class MeetingAttendanceDtos {
           online,
           notAttending,
           invited - physical - online - notAttending,
-          present,
+          inPerson + presentOnline,
+          inPerson,
+          presentOnline,
           absent,
-          invited - present - absent);
+          invited - inPerson - presentOnline - absent);
     }
   }
 
@@ -109,7 +115,9 @@ public final class MeetingAttendanceDtos {
 
   public record MarkEntry(
       @NotBlank String memberId,
-      @Pattern(regexp = "Present|Absent", message = "Attendance must be Present or Absent")
+      @Pattern(
+              regexp = "Present|PresentOnline|Absent",
+              message = "Attendance must be Present (in person), Present online, or Absent")
           String attendance,
       @Size(max = 500, message = "Keep the note under 500 characters") String note) {}
 }
