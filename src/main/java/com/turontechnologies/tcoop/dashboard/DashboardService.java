@@ -133,7 +133,14 @@ public class DashboardService {
                 memberRepository.countByCooperativeIdAndRoleIn(cooperativeId, List.of("admin", "member"));
         BigDecimal totalSavings = savingsRecordRepository.sumByCooperative(cooperativeId);
         BigDecimal totalLoans = loanRecordRepository.sumByCooperative(cooperativeId);
-        BigDecimal dividends = totalSavings.multiply(DIVIDEND_RATE).setScale(2, RoundingMode.HALF_UP);
+        Cooperative coop = cooperativeRepository.findById(cooperativeId).orElse(null);
+        BigDecimal dividends = coop == null
+                ? totalSavings.multiply(DIVIDEND_RATE).setScale(2, RoundingMode.HALF_UP)
+                : com.turontechnologies.tcoop.loan.DividendCalculator.forCooperative(
+                        coop,
+                        totalSavings,
+                        com.turontechnologies.tcoop.loan.DividendCalculator.interestEarned(
+                                loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(cooperativeId)));
 
         List<SummaryCardDto> cards = List.of(
                 new SummaryCardDto(prefix + " Savings", totalSavings),
@@ -166,7 +173,15 @@ public class DashboardService {
     private DashboardSummaryDto memberSummary(String cooperativeId, String memberId, String prefix) {
         BigDecimal totalSavings = savingsRecordRepository.sumByMember(memberId);
         BigDecimal totalLoans = loanRecordRepository.sumByMember(memberId);
-        BigDecimal dividends = totalSavings.multiply(DIVIDEND_RATE).setScale(2, RoundingMode.HALF_UP);
+        Cooperative coop = cooperativeRepository.findById(cooperativeId).orElse(null);
+        BigDecimal dividends = coop == null
+                ? totalSavings.multiply(DIVIDEND_RATE).setScale(2, RoundingMode.HALF_UP)
+                : com.turontechnologies.tcoop.loan.DividendCalculator.forMember(
+                        coop,
+                        totalSavings,
+                        savingsRecordRepository.sumByCooperative(cooperativeId),
+                        com.turontechnologies.tcoop.loan.DividendCalculator.interestEarned(
+                                loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(cooperativeId)));
 
         List<LoanType> loanTypes = loanTypeRepository.findAllByCooperativeId(cooperativeId);
         List<LoanTypeEligibilityDto> loanEligibilityByType =
@@ -177,10 +192,12 @@ public class DashboardService {
                                         new LoanTypeEligibilityDto(
                                                 loanType.getId().toString(),
                                                 loanType.getName(),
-                                                LoanEligibility.forMode(
-                                                        totalSavings, loanType, LoanEligibility.TIMES_TWO),
-                                                LoanEligibility.forMode(
-                                                        totalSavings, loanType, LoanEligibility.WITHIN)))
+                                                coop == null
+                                                        ? LoanEligibility.forMode(totalSavings, loanType, LoanEligibility.TIMES_TWO)
+                                                        : LoanEligibility.forMode(totalSavings, loanType, LoanEligibility.TIMES_TWO, coop),
+                                                coop == null
+                                                        ? LoanEligibility.forMode(totalSavings, loanType, LoanEligibility.WITHIN)
+                                                        : LoanEligibility.forMode(totalSavings, loanType, LoanEligibility.WITHIN, coop)))
                         .toList();
         BigDecimal loanEligibility =
                 loanEligibilityByType.stream()

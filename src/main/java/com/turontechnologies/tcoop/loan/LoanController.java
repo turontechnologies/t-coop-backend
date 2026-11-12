@@ -40,6 +40,19 @@ public class LoanController {
   private final AuditLogService auditLogService;
   private final CoopPermissions coopPermissions;
 
+  /** Optional so tests can build this controller without it; when absent, lists carry no step
+   * titles and committee membership doesn't widen access. */
+  private LoanCommittee loanCommittee;
+
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  void setLoanCommittee(LoanCommittee loanCommittee) {
+    this.loanCommittee = loanCommittee;
+  }
+
+  private List<LoanCommittee.Step> stepsOf(String cooperativeId) {
+    return loanCommittee == null ? List.of() : loanCommittee.stepsOf(cooperativeId);
+  }
+
   public LoanController(
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
@@ -288,6 +301,7 @@ public class LoanController {
     Map<UUID, List<LoanGuarantor>> guarantorsByLoan =
         loanGuarantorRepository.findAllByLoanIdIn(matching.stream().map(LoanRecord::getId).toList()).stream()
             .collect(java.util.stream.Collectors.groupingBy(LoanGuarantor::getLoanId));
+    List<LoanCommittee.Step> steps = stepsOf(id);
     List<LoanRecordDto> dtos =
         matching.stream()
             .map(
@@ -296,7 +310,8 @@ public class LoanController {
                         record,
                         memberNames.getOrDefault(record.getMemberId(), "Unknown member"),
                         typeNames.getOrDefault(record.getLoanTypeId(), "Unknown type"),
-                        guarantorsByLoan.getOrDefault(record.getId(), List.of())))
+                        guarantorsByLoan.getOrDefault(record.getId(), List.of()),
+                        loanCommittee == null ? null : loanCommittee.stepTitle(steps, record)))
             .toList();
     return ResponseEntity.ok(dtos);
   }
@@ -330,7 +345,12 @@ public class LoanController {
                 || (record.getMemberId().equals(caller.getId())
                     && coopPermissions.allows(
                         caller, record.getCooperativeId(), "Loans", "My Loans", false)));
-    if (!"super_admin".equals(caller.getRole()) && !isParty && !staffHasLoanAccess) {
+    List<LoanCommittee.Step> steps = stepsOf(record.getCooperativeId());
+    boolean onCommittee =
+        caller.getCooperativeId() != null
+            && caller.getCooperativeId().equals(record.getCooperativeId())
+            && steps.stream().anyMatch(s -> s.member().getId().equals(caller.getId()));
+    if (!"super_admin".equals(caller.getRole()) && !isParty && !staffHasLoanAccess && !onCommittee) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view that loan record"));
     }
 
@@ -341,7 +361,8 @@ public class LoanController {
             record,
             member != null ? member.getFullName() : "Unknown member",
             type != null ? type.getName() : "Unknown type",
-            loanGuarantorRepository.findAllByLoanIdOrderByCreatedAtAsc(record.getId())));
+            loanGuarantorRepository.findAllByLoanIdOrderByCreatedAtAsc(record.getId()),
+            loanCommittee == null ? null : loanCommittee.stepTitle(steps, record)));
   }
 
   private LoanRecord findRecord(String id) {

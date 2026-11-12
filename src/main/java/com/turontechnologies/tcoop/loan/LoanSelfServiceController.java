@@ -529,6 +529,27 @@ public class LoanSelfServiceController {
     return ResponseEntity.ok(dtoOf(record));
   }
 
+  /** Loans waiting on the caller as a committee member right now (or covering for one). */
+  @GetMapping("/api/v1/cooperatives/{id}/loans/awaiting-me")
+  public ResponseEntity<?> awaitingMe(Authentication authentication, @PathVariable String id) {
+    var access = requireMemberOfCoop(authentication, id);
+    if (access.error() != null) return access.error();
+    Member caller = access.caller();
+    List<Step> steps = loanCommittee.stepsOf(id);
+    List<LoanRecordDto> waiting =
+        loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(id).stream()
+            .filter(record -> AWAITING_APPROVAL.equals(record.getStatus()))
+            .filter(
+                record -> {
+                  Step step = loanCommittee.currentStep(steps, record);
+                  Actor actor = step == null ? null : actorFor(step, record);
+                  return actor != null && actor.member().getId().equals(caller.getId());
+                })
+            .map(this::dtoOf)
+            .toList();
+    return ResponseEntity.ok(waiting);
+  }
+
   /* ─────────────────────────────── Borrower's answer ─────────────────────────────── */
 
   /**

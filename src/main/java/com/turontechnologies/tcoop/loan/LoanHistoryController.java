@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class LoanHistoryController {
 
   private static final List<String> PENDING =
-      List.of("Awaiting Guarantor", "Awaiting Vice President", "Awaiting Treasurer", "Awaiting Secretary");
+      List.copyOf(LoanSelfServiceController.IN_PROGRESS);
 
   private final MemberRepository memberRepository;
   private final LoanRecordRepository loanRecordRepository;
