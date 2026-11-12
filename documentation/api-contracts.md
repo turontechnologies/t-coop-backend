@@ -701,14 +701,19 @@ one creates a register line per active member it reaches.
 
 | Endpoint | Who | Does |
 |---|---|---|
-| `GET /notices/:id/my-response` | anyone it reached | `{ "entry": Entry \| null, "canRespond": bool }` |
+| `GET /notices/:id/my-response` | anyone it reached | `{ "entry": Entry \| null, "canRespond": bool, "canCheckIn": bool, "window": Window }` |
 | `PUT /notices/:id/my-response` `{ "response": "Physical\|Online\|NotAttending", "reason" }` | anyone on its register, until the meeting starts | reason required for `NotAttending`; that answer marks them `Absent` with the reason (`attendanceAuto: true`) unless an officer already marked them |
-| `GET /notices/:id/attendance` | co-op admin / co-op role holders | `{ noticeId, title, meetingDate, meetingTime, summary: { invited, physical, online, notAttending, noResponse, present, absent, unmarked }, entries: [Entry] }` |
-| `PUT /notices/:id/attendance` `{ "entries": [{ "memberId", "attendance": "Present\|Absent\|null", "note" }] }` | same | marks the register; returns it |
-| `GET /attendance/me` | anyone | own history: `[{ noticeId, title, meetingDate, meetingTime, memberId, memberName, response, responseReason, attendance, attendanceNote }]` |
+| `PUT /notices/:id/my-checkin` `{ "mode": "InPerson\|Online" }` (V47) | anyone on its register, from the start until `window.checkInClosesAt`, and only until an officer has recorded their attendance | the member says they're here; it shows as awaiting approval and only counts once approved. Checking in clears an automatic Absent from an apology. 409 outside the window or once reviewed |
+| `GET /notices/:id/attendance` | co-op admin / co-op role holders | `{ noticeId, title, meetingDate, meetingTime, meetingDurationMinutes, meetingVenue, attendanceEndsAt, canMarkAttendance, window: Window, summary: { invited, physical, online, notAttending, noResponse, present, presentInPerson, presentOnline, absent, unmarked, checkedIn, awaitingApproval }, entries: [Entry] }` |
+| `PUT /notices/:id/attendance` `{ "entries": [{ "memberId", "attendance": "Present\|PresentOnline\|Absent\|null", "note" }] }` | same, with Notice Board write, from the start until the end | live marking; returns the register. 409 outside the meeting |
+| `POST /notices/:id/attendance/approve` `{ "memberIds": [...] }` | same, from the start until the end | approves check-ins: each becomes `Present` or `PresentOnline` as they checked in. 400 if someone hasn't checked in |
+| `PUT /notices/:id/attendance/import` (same body as `PUT …/attendance`) | same, with Notice Board write, **at any time** | spreadsheet upload. Every line is validated before anything is saved |
+| `GET /attendance/me` | anyone | own history: `[{ noticeId, title, meetingDate, meetingTime, meetingDurationMinutes, meetingVenue, held, memberId, memberName, response, responseReason, attendance, attendanceNote, checkInMode, awaitingApproval }]` (`held` = the meeting has started) |
 | `GET /cooperatives/:id/attendance[?memberId=]` | co-op admin / role holders | same shape, every member |
 
-`Entry` = `{ memberId, memberName, response, responseReason, respondedAt, attendance, attendanceNote, attendanceAuto, markedAt }`.
+`Entry` = `{ memberId, memberName, response, responseReason, respondedAt, attendance, attendanceNote, attendanceAuto, markedAt, checkInMode, checkedInAt, awaitingApproval }`.
+
+`Window` = `{ startsAt, checkInClosesAt, endsAt }` (ISO instants). `checkInClosesAt` is 30 minutes before the end, but never earlier than halfway through, so a short meeting still has a check-in window. Meeting times are Africa/Lagos. A Meeting Notice also takes an optional `meetingVenue` (≤ 200 characters).
 
 ```ts
 // Notice shape (GET/POST response)
