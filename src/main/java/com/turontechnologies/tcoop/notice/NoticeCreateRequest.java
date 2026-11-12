@@ -32,6 +32,7 @@ public record NoticeCreateRequest(
     @Min(1)
         @Max(1440)
     Integer meetingDurationMinutes,
+    @Size(max = 200, message = "Keep the venue under 200 characters") String meetingVenue,
     String meetingNoticeId,
     NoticeAttachmentInput attachment,
     @jakarta.validation.constraints.NotBlank(message = "Missing send time") String sendAt,

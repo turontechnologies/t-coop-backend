@@ -46,6 +46,10 @@ public class Notice {
   @Column(name = "meeting_notice_id")
   private UUID meetingNoticeId;
 
+  /** Where the meeting happens — a place, a link, or both. Optional. */
+  @Column(name = "meeting_venue")
+  private String meetingVenue;
+
   @Column(name = "attachment_name")
   private String attachmentName;
 
@@ -120,6 +124,14 @@ public class Notice {
 
   public void setMeetingDurationMinutes(Integer meetingDurationMinutes) {
     this.meetingDurationMinutes = meetingDurationMinutes;
+  }
+
+  public String getMeetingVenue() {
+    return meetingVenue;
+  }
+
+  public void setMeetingVenue(String meetingVenue) {
+    this.meetingVenue = meetingVenue == null || meetingVenue.isBlank() ? null : meetingVenue.trim();
   }
 
   public UUID getMeetingNoticeId() {

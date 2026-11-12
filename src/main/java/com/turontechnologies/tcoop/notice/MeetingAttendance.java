@@ -63,6 +63,17 @@ public class MeetingAttendance {
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
+  /** The member's own check-in during the meeting: {@link #CHECKIN_IN_PERSON} or
+   * {@link #CHECKIN_ONLINE}. It only counts once an officer approves it. */
+  @Column(name = "checkin_mode")
+  private String checkInMode;
+
+  @Column(name = "checked_in_at")
+  private LocalDateTime checkedInAt;
+
+  public static final String CHECKIN_IN_PERSON = "InPerson";
+  public static final String CHECKIN_ONLINE = "Online";
+
   protected MeetingAttendance() {
     // JPA
   }
@@ -101,6 +112,42 @@ public class MeetingAttendance {
     this.attendanceAuto = false;
     this.markedById = attendance == null ? null : markedById;
     this.markedAt = attendance == null ? null : LocalDateTime.now(ZoneOffset.UTC);
+  }
+
+  /** Has an officer settled this member's attendance (as opposed to nothing, or the automatic
+   * Absent from an apology)? */
+  public boolean isReviewed() {
+    return attendance != null && !attendanceAuto;
+  }
+
+  /** The member says they're here. A member who sent apologies but turned up anyway loses the
+   * automatic Absent, so their check-in waits for approval like everyone else's. */
+  public void checkIn(String mode) {
+    this.checkInMode = mode;
+    this.checkedInAt = LocalDateTime.now(ZoneOffset.UTC);
+    if (attendanceAuto) {
+      this.attendance = null;
+      this.attendanceNote = null;
+      this.attendanceAuto = false;
+    }
+  }
+
+  /** Checked in and no officer has decided yet. */
+  public boolean isAwaitingApproval() {
+    return checkInMode != null && !isReviewed();
+  }
+
+  /** The attendance an approved check-in becomes. */
+  public String attendanceForCheckIn() {
+    return CHECKIN_ONLINE.equals(checkInMode) ? PRESENT_ONLINE : PRESENT;
+  }
+
+  public String getCheckInMode() {
+    return checkInMode;
+  }
+
+  public LocalDateTime getCheckedInAt() {
+    return checkedInAt;
   }
 
   public UUID getId() {

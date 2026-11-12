@@ -251,6 +251,7 @@ public class NoticeController {
     }
     notice.setMeetingTime(meetingTime);
     notice.setMeetingDurationMinutes(meetingDurationMinutes);
+    if ("Meeting Notice".equals(request.type())) notice.setMeetingVenue(request.meetingVenue());
     notice.setMeetingNoticeId(meetingNoticeId);
     noticeRepository.save(notice);
     // A meeting notice gets its attendance register straight away — one line per member it reaches.
