@@ -44,16 +44,27 @@ class DashboardServiceLoanEligibilityTest {
         .thenReturn(List.of());
     SavingsTypeRepository savingsTypeRepository = mock(SavingsTypeRepository.class);
     when(savingsTypeRepository.findAllByCooperativeId(cooperativeId)).thenReturn(List.of());
+    when(savingsRecordRepository.sumByCooperative(cooperativeId)).thenReturn(new BigDecimal("10000"));
+    CooperativeRepository cooperativeRepository = mock(CooperativeRepository.class);
+    when(cooperativeRepository.findById(cooperativeId))
+        .thenReturn(
+            java.util.Optional.of(
+                new com.turontechnologies.tcoop.cooperative.Cooperative(
+                    cooperativeId, "Test Co-op", "Admin", "a@example.com", "0800", "Street",
+                    "Nigeria", "Lagos", "Ikeja", "NGN")));
 
     DashboardService service =
         new DashboardService(
             mock(MemberRepository.class),
-            mock(CooperativeRepository.class),
+            cooperativeRepository,
             savingsRecordRepository,
             savingsTypeRepository,
             loanRecordRepository,
             loanTypeRepository,
-            mock(com.turontechnologies.tcoop.coopstaff.CoopPermissions.class));
+            mock(com.turontechnologies.tcoop.coopstaff.CoopPermissions.class),
+            new com.turontechnologies.tcoop.loan.LoanEligibilityService(
+                savingsRecordRepository, loanRecordRepository, loanTypeRepository),
+            mock(com.turontechnologies.tcoop.loan.LoanRepaymentRepository.class));
     Member member =
         new Member(memberId, cooperativeId, "member", "hash", "First", "Last", "member@example.com");
 
