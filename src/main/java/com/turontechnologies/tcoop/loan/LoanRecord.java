@@ -92,6 +92,53 @@ public class LoanRecord {
   @Column(name = "disbursed_at")
   private LocalDateTime disbursedAt;
 
+  // V48: what was asked for, where the committee is, the borrower's answer and how it was paid.
+  @Column(name = "requested_amount")
+  private BigDecimal requestedAmount;
+
+  @Column(name = "requested_months")
+  private Integer requestedMonths;
+
+  /** 1-based committee position the loan is waiting on, while "Awaiting Approval". */
+  @Column(name = "approval_step")
+  private Integer approvalStep;
+
+  @Column(name = "offer_responded_at")
+  private LocalDateTime offerRespondedAt;
+
+  /** "Registered" (the member's own account on file) or "Other" (another account in their name). */
+  @Column(name = "payout_account_type")
+  private String payoutAccountType;
+
+  @Column(name = "payout_bank_code")
+  private String payoutBankCode;
+
+  @Column(name = "payout_bank_name")
+  private String payoutBankName;
+
+  @Column(name = "payout_account_number")
+  private String payoutAccountNumber;
+
+  @Column(name = "payout_account_name")
+  private String payoutAccountName;
+
+  /** True when the bank confirmed the account name; false when it could not be checked. */
+  @Column(name = "payout_name_verified")
+  private Boolean payoutNameVerified;
+
+  /** "Online", "Cheque" or "Import". */
+  @Column(name = "disbursement_method")
+  private String disbursementMethod;
+
+  @Column(name = "cheque_url")
+  private String chequeUrl;
+
+  @Column(name = "cheque_number")
+  private String chequeNumber;
+
+  @Column(name = "disbursed_by_name")
+  private String disbursedByName;
+
   protected LoanRecord() {
     // JPA
   }
@@ -127,6 +174,102 @@ public class LoanRecord {
     this.repaymentsMade = 0;
     this.loanMode = loanMode;
     this.createdAt = LocalDateTime.now();
+    this.requestedAmount = amount;
+    this.requestedMonths = durationMonths;
+  }
+
+  /** New live terms: an approver's suggestion. The requested figures stay as they were. */
+  public void applyTerms(
+      BigDecimal amount, int months, BigDecimal interestRate, BigDecimal monthlyRepayment, BigDecimal totalRepayment) {
+    this.amount = amount;
+    this.durationMonths = months;
+    this.numberOfRepayments = months;
+    this.interestRate = interestRate;
+    this.monthlyRepayment = monthlyRepayment;
+    this.totalRepayment = totalRepayment;
+  }
+
+  public void setApprovalStep(Integer approvalStep) {
+    this.approvalStep = approvalStep;
+  }
+
+  /** The borrower accepts the approved terms and says where the money goes. */
+  public void acceptOffer(
+      String accountType, String bankCode, String bankName, String accountNumber, String accountName, boolean verified) {
+    this.payoutAccountType = accountType;
+    this.payoutBankCode = bankCode;
+    this.payoutBankName = bankName;
+    this.payoutAccountNumber = accountNumber;
+    this.payoutAccountName = accountName;
+    this.payoutNameVerified = verified;
+    this.offerRespondedAt = LocalDateTime.now();
+  }
+
+  public void declineOffer() {
+    this.offerRespondedAt = LocalDateTime.now();
+  }
+
+  public void setDisbursementDetails(String method, String chequeUrl, String chequeNumber, String disbursedByName) {
+    this.disbursementMethod = method;
+    this.chequeUrl = chequeUrl;
+    this.chequeNumber = chequeNumber;
+    this.disbursedByName = disbursedByName;
+  }
+
+  public BigDecimal getRequestedAmount() {
+    return requestedAmount != null ? requestedAmount : amount;
+  }
+
+  public int getRequestedMonths() {
+    return requestedMonths != null ? requestedMonths : durationMonths;
+  }
+
+  public Integer getApprovalStep() {
+    return approvalStep;
+  }
+
+  public LocalDateTime getOfferRespondedAt() {
+    return offerRespondedAt;
+  }
+
+  public String getPayoutAccountType() {
+    return payoutAccountType;
+  }
+
+  public String getPayoutBankCode() {
+    return payoutBankCode;
+  }
+
+  public String getPayoutBankName() {
+    return payoutBankName;
+  }
+
+  public String getPayoutAccountNumber() {
+    return payoutAccountNumber;
+  }
+
+  public String getPayoutAccountName() {
+    return payoutAccountName;
+  }
+
+  public Boolean getPayoutNameVerified() {
+    return payoutNameVerified;
+  }
+
+  public String getDisbursementMethod() {
+    return disbursementMethod;
+  }
+
+  public String getChequeUrl() {
+    return chequeUrl;
+  }
+
+  public String getChequeNumber() {
+    return chequeNumber;
+  }
+
+  public String getDisbursedByName() {
+    return disbursedByName;
   }
 
   public void setStatus(String status) {
@@ -165,6 +308,7 @@ public class LoanRecord {
     this.disbursedAmount = amount;
     this.disbursementStatus = "Imported";
     this.disbursementReference = "import-" + id;
+    this.disbursementMethod = "Import";
     this.repaymentsMade = repaymentsMade;
     this.status = status;
   }

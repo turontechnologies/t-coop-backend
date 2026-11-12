@@ -5,42 +5,65 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * GET /api/v1/cooperatives/{id}/loans/{loanId}/approvals — the loan's approval chain as the
- * caller sees it: who holds each office, what's been decided so far, and whether the caller
- * can act on the current step right now (and in what capacity).
+ * GET /api/v1/cooperatives/{id}/loans/{loanId}/approvals — the loan's committee and progress as
+ * the caller sees it, and what the caller can do right now.
+ *
+ * <p>{@code stage}: "Guarantors" → "Approval" → "Acceptance" (the borrower answers the offer) →
+ * "Disbursement" → "Active" / "Completed", or "Rejected" / "Declined".
  */
 public record LoanApprovalStatusDto(
     List<Step> chain,
     List<Decision> trail,
-    String currentStep,
+    String stage,
+    /** 1-based committee position the loan is waiting on, during "Approval". */
+    Integer currentStep,
     boolean canApprove,
     boolean canReject,
-    /** e.g. "Treasurer", "Admin (covering for Treasurer)", "President" — null when the caller can't act. */
+    /** e.g. "Treasurer", "Admin (covering for Treasurer)" — null when the caller can't act. */
     String actingAs,
-    BigDecimal netDisbursement) {
+    /** The caller is the last approver: their figures become the offer. */
+    boolean finalStep,
+    /** The borrower can accept or decline the approved terms. */
+    boolean canRespondToOffer,
+    boolean canDisburse,
+    /** The longest repayment period this loan's type allows. */
+    int maxMonths,
+    BigDecimal minAmount,
+    BigDecimal netDisbursement,
+    /** The borrower's own account on file, for the offer's "registered account" choice. */
+    RegisteredAccount registeredAccount) {
 
-  /** One office in the chain. {@code holderName} is null when the office is vacant (the co-op
-   * admin covers it). */
-  public record Step(String office, String label, String holderName) {}
+  public record Step(int position, String title, String memberId, String memberName) {}
 
   public record Decision(
-      String office,
-      String label,
+      Integer position,
+      String title,
       String decision,
       String memberName,
       boolean covering,
       String note,
-      LocalDateTime actedAt) {
+      LocalDateTime actedAt,
+      BigDecimal suggestedAmount,
+      Integer suggestedMonths,
+      BigDecimal previousAmount,
+      Integer previousMonths) {
 
-    static Decision from(LoanApproval approval, String label) {
+    static Decision from(LoanApproval approval, String title) {
       return new Decision(
-          approval.getStep(),
-          label,
+          approval.getPosition(),
+          title,
           approval.getDecision(),
           approval.getMemberName(),
           approval.isCovering(),
           approval.getNote(),
-          approval.getActedAt());
+          approval.getActedAt(),
+          approval.getSuggestedAmount(),
+          approval.getSuggestedMonths(),
+          approval.getPreviousAmount(),
+          approval.getPreviousMonths());
     }
   }
+
+  /** Account number masked except the last four digits. */
+  public record RegisteredAccount(String bankCode, String accountNumberMasked, String accountName) {}
 }

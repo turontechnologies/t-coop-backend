@@ -37,6 +37,64 @@ public class LoanApproval {
   @Column(name = "acted_at")
   private LocalDateTime actedAt;
 
+  /** Committee position (V48); null on decisions made under the old fixed office chain. */
+  private Integer position;
+
+  @Column(name = "suggested_amount")
+  private java.math.BigDecimal suggestedAmount;
+
+  @Column(name = "suggested_months")
+  private Integer suggestedMonths;
+
+  @Column(name = "previous_amount")
+  private java.math.BigDecimal previousAmount;
+
+  @Column(name = "previous_months")
+  private Integer previousMonths;
+
+  /** A committee member's decision, with the terms they suggested when approving. */
+  public static LoanApproval committee(
+      UUID loanId,
+      int position,
+      String title,
+      String decision,
+      String memberId,
+      String memberName,
+      boolean covering,
+      String note,
+      java.math.BigDecimal suggestedAmount,
+      Integer suggestedMonths,
+      java.math.BigDecimal previousAmount,
+      Integer previousMonths) {
+    LoanApproval approval = new LoanApproval(loanId, title, decision, memberId, memberName, covering, note);
+    approval.position = position;
+    approval.suggestedAmount = suggestedAmount;
+    approval.suggestedMonths = suggestedMonths;
+    approval.previousAmount = previousAmount;
+    approval.previousMonths = previousMonths;
+    return approval;
+  }
+
+  public Integer getPosition() {
+    return position;
+  }
+
+  public java.math.BigDecimal getSuggestedAmount() {
+    return suggestedAmount;
+  }
+
+  public Integer getSuggestedMonths() {
+    return suggestedMonths;
+  }
+
+  public java.math.BigDecimal getPreviousAmount() {
+    return previousAmount;
+  }
+
+  public Integer getPreviousMonths() {
+    return previousMonths;
+  }
+
   protected LoanApproval() {
     // JPA
   }

@@ -102,6 +102,14 @@ public class Member {
   @Column(name = "coop_role_id")
   private UUID coopRoleId;
 
+  /** When the member joined, set by the database. Used for "member for at least N months". */
+  @Column(name = "created_at", insertable = false, updatable = false)
+  private java.time.LocalDateTime createdAt;
+
+  public java.time.LocalDateTime getCreatedAt() {
+    return createdAt;
+  }
+
   @Column(name = "invite_token")
   private String inviteToken;
 

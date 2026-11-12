@@ -36,6 +36,33 @@ public final class LoanEligibility {
     return byMode.min(loanType.getMaxAmount()).setScale(2, RoundingMode.DOWN);
   }
 
+  /** The same, by the co-op's own rules: Times two is up to {@code savingsMultiplier} times the
+   * member's savings, Within up to {@code withinPercent}% of them. */
+  public static BigDecimal forMode(
+      BigDecimal totalSavings, LoanType loanType, String mode, BigDecimal savingsMultiplier, BigDecimal withinPercent) {
+    BigDecimal savings = totalSavings.max(BigDecimal.ZERO);
+    BigDecimal byMode =
+        WITHIN.equals(mode)
+            ? savings.multiply(withinPercent).divide(BigDecimal.valueOf(100), 2, RoundingMode.DOWN)
+            : savings.multiply(savingsMultiplier);
+    return byMode.min(loanType.getMaxAmount()).setScale(2, RoundingMode.DOWN);
+  }
+
+  public static BigDecimal forMode(
+      BigDecimal totalSavings, LoanType loanType, String mode, com.turontechnologies.tcoop.cooperative.Cooperative coop) {
+    return forMode(totalSavings, loanType, mode, coop.getLoanSavingsMultiplier(), coop.getLoanWithinPercent());
+  }
+
+  /** Interest rate (effective %), monthly and total repayment for an amount over some months. */
+  public record Terms(BigDecimal interestRate, BigDecimal monthlyRepayment, BigDecimal totalRepayment) {}
+
+  public static Terms terms(LoanType loanType, BigDecimal amount, int months) {
+    BigDecimal interest = totalInterest(loanType, amount);
+    BigDecimal rate = interest.multiply(BigDecimal.valueOf(100)).divide(amount, 2, RoundingMode.HALF_UP);
+    BigDecimal total = amount.add(interest);
+    return new Terms(rate, total.divide(BigDecimal.valueOf(months), 2, RoundingMode.HALF_UP), total);
+  }
+
   /** The largest amount across both modes (Times two is always the larger) — for the dashboard. */
   public static BigDecimal best(BigDecimal totalSavings, LoanType loanType) {
     return forMode(totalSavings, loanType, TIMES_TWO);

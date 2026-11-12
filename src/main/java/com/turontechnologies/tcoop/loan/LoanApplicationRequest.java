@@ -16,4 +16,6 @@ public record LoanApplicationRequest(
         BigDecimal amount,
     String loanMode,
     String guarantorMemberId,
-    List<String> guarantorMemberIds) {}
+    List<String> guarantorMemberIds,
+    /** How long the member wants to repay over — up to the loan type's maximum. Defaults to it. */
+    Integer durationMonths) {}

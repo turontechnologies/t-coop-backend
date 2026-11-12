@@ -6,6 +6,9 @@ import com.turontechnologies.tcoop.coopstaff.CoopOffices;
 import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
+import com.turontechnologies.tcoop.loan.LoanCommittee.Step;
+import com.turontechnologies.tcoop.loan.LoanOfferRequests.Disburse;
+import com.turontechnologies.tcoop.loan.LoanOfferRequests.OfferResponse;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.notification.NotificationService;
@@ -18,10 +21,18 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.NumberFormat;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,30 +43,36 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The real backend behind a member's own "Take a Loan" application, the named guarantor's
- * accept/reject, and the officers' approval chain — the self-service counterpart to
- * {@link LoanController}'s read-only oversight.
+ * A member's loan, from application to payout.
  *
- * <p>A loan's guarantor is always an active member of the same co-op ({@code
- * loan_records.guarantor_id} is a hard FK). Once they accept, the loan moves through the co-op's
- * officers in order — Vice President, Treasurer, Secretary (see {@link CoopOffices}) — and the
- * Secretary's approval pays it out to the member's bank account server-side, from the co-op's
- * own Paystack account if it connected one (Settings -> Integrations), else the platform's. The
- * President can reject at any stage. When an office is vacant (or its holder is the borrower or
- * guarantor), the co-op admin covers that step.
+ * <ol>
+ *   <li>The member applies: type, amount, how many months to repay over (up to the type's
+ *       maximum), and for a Times two loan their guarantors. The co-op's own rules apply
+ *       (minimum amount, eligibility; see Settings -> Loans).
+ *   <li>Guarantors accept (Times two only).
+ *   <li>The co-op's loan committee approves in the order the admin set. Each approver suggests
+ *       an amount and repayment period; the last one's figures are the approved terms.
+ *   <li>The borrower accepts or declines the approved terms. Accepting chooses where the money is
+ *       paid: their registered account, or another account that must be in their registered
+ *       name.
+ *   <li>An officer pays it out, online (Paystack transfer) or by cheque, and it becomes Active.
+ * </ol>
+ *
+ * Nobody approves a loan they borrow or guarantee: the co-op admin covers that step.
  */
 @RestController
 public class LoanSelfServiceController {
 
   private static final Integer SETTINGS_SINGLETON_ID = 1;
-  private static final String AWAITING_GUARANTOR = "Awaiting Guarantor";
 
-  /** A Times two loan needs at least this many guarantors. */
-  public static final int MIN_LOAN_GUARANTORS = 2;
+  static final String AWAITING_GUARANTOR = "Awaiting Guarantor";
+  static final String AWAITING_APPROVAL = "Awaiting Approval";
+  static final String AWAITING_ACCEPTANCE = "Awaiting Acceptance";
+  static final String PENDING_DISBURSEMENT = "Pending Disbursement";
 
-  /** The approval chain, in order. */
-  private static final List<String> CHAIN =
-      List.of(CoopOffices.VICE_PRESIDENT, CoopOffices.TREASURER, CoopOffices.SECRETARY);
+  /** Loans still being decided or paid out. */
+  public static final Set<String> IN_PROGRESS =
+      Set.of(AWAITING_GUARANTOR, AWAITING_APPROVAL, AWAITING_ACCEPTANCE, PENDING_DISBURSEMENT);
 
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
@@ -65,7 +82,7 @@ public class LoanSelfServiceController {
   private final LoanGuarantorRepository loanGuarantorRepository;
   private final SavingsRecordRepository savingsRecordRepository;
   private final PlatformSettingsRepository platformSettingsRepository;
-  private final CoopOffices coopOffices;
+  private final LoanCommittee loanCommittee;
   private final CoopPermissions coopPermissions;
   private final CoopGatewayResolver gatewayResolver;
   private final PaymentGatewayService paymentGatewayService;
@@ -81,7 +98,7 @@ public class LoanSelfServiceController {
       LoanGuarantorRepository loanGuarantorRepository,
       SavingsRecordRepository savingsRecordRepository,
       PlatformSettingsRepository platformSettingsRepository,
-      CoopOffices coopOffices,
+      LoanCommittee loanCommittee,
       CoopPermissions coopPermissions,
       CoopGatewayResolver gatewayResolver,
       PaymentGatewayService paymentGatewayService,
@@ -95,7 +112,7 @@ public class LoanSelfServiceController {
     this.loanGuarantorRepository = loanGuarantorRepository;
     this.savingsRecordRepository = savingsRecordRepository;
     this.platformSettingsRepository = platformSettingsRepository;
-    this.coopOffices = coopOffices;
+    this.loanCommittee = loanCommittee;
     this.coopPermissions = coopPermissions;
     this.gatewayResolver = gatewayResolver;
     this.paymentGatewayService = paymentGatewayService;
@@ -103,8 +120,7 @@ public class LoanSelfServiceController {
     this.auditLogService = auditLogService;
   }
 
-  /** What the member will actually receive once the Secretary approves — principal minus the
-   * combined co-op + platform loans charge. */
+  /** What the member will actually receive: principal minus the co-op + platform loans charge. */
   @GetMapping("/api/v1/cooperatives/{id}/loans/{loanId}/disbursement")
   public ResponseEntity<?> disbursementPreview(
       Authentication authentication, @PathVariable String id, @PathVariable String loanId) {
@@ -112,18 +128,16 @@ public class LoanSelfServiceController {
     if (access.error() != null) return access.error();
 
     LoanRecord record = findRecord(loanId);
-    if (record == null || !id.equals(record.getCooperativeId())) {
-      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
-    }
+    if (record == null || !id.equals(record.getCooperativeId())) return loanNotFound();
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
-    if (coop == null) {
-      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
-    }
+    if (coop == null) return coopNotFound();
 
     BigDecimal chargeAmount = loansChargeFor(coop, platformSettings(), record.getAmount());
     return ResponseEntity.ok(
         new LoanDisbursementDto(record.getAmount(), chargeAmount, record.getAmount().subtract(chargeAmount)));
   }
+
+  /* ─────────────────────────────── Apply ─────────────────────────────── */
 
   @PostMapping("/api/v1/cooperatives/{id}/loans")
   public ResponseEntity<?> apply(
@@ -134,41 +148,57 @@ public class LoanSelfServiceController {
     var access = requireMemberOfCoop(authentication, id);
     if (access.error() != null) return access.error();
     Member member = access.caller();
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) return coopNotFound();
 
     LoanType type = findType(request.loanTypeId(), id);
     if (type == null || !"Active".equals(type.getStatus())) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan type"));
     }
 
-    String mode = request.loanMode() == null || request.loanMode().isBlank()
-        ? LoanEligibility.TIMES_TWO
-        : request.loanMode();
+    String mode = notBlank(request.loanMode()) ? request.loanMode() : LoanEligibility.TIMES_TWO;
     if (!LoanEligibility.isValidMode(mode)) {
       return ResponseEntity.badRequest().body(Map.of("error", "Choose \"Times two\" or \"Within\""));
     }
     boolean within = LoanEligibility.WITHIN.equals(mode);
 
+    int maxMonths = type.getDurationMonths();
+    int months = request.durationMonths() == null ? maxMonths : request.durationMonths();
+    if (months < 1 || months > maxMonths) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "Choose a repayment period between 1 and " + maxMonths + " months for this loan type"));
+    }
+    if (coop.getLoanMinAmount().signum() > 0 && request.amount().compareTo(coop.getLoanMinAmount()) < 0) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "The smallest loan you can apply for is " + naira(coop.getLoanMinAmount())));
+    }
+
+    // The co-op's eligibility rules (Settings -> Loans).
+    BigDecimal totalSavings = savingsRecordRepository.sumByMember(member.getId());
+    String ruleProblem = eligibilityProblem(coop, member, totalSavings);
+    if (ruleProblem != null) return ResponseEntity.status(409).body(Map.of("error", ruleProblem));
+
     // A Within loan is secured by the member's own savings, so it has no guarantor. A Times two
-    // loan needs at least MIN_LOAN_GUARANTORS different active members of this co-op.
-    List<Member> guarantors = new java.util.ArrayList<>();
+    // loan needs at least the co-op's minimum number of guarantors.
+    List<Member> guarantors = new ArrayList<>();
     if (!within) {
-      java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+      int minGuarantors = coop.getLoanMinGuarantors();
+      LinkedHashSet<String> ids = new LinkedHashSet<>();
       if (request.guarantorMemberIds() != null) {
-        request.guarantorMemberIds().stream().filter(value -> notBlank(value)).map(String::trim).forEach(ids::add);
+        request.guarantorMemberIds().stream().filter(this::notBlank).map(String::trim).forEach(ids::add);
       }
       if (notBlank(request.guarantorMemberId())) ids.add(request.guarantorMemberId().trim());
-      if (ids.size() < MIN_LOAN_GUARANTORS) {
+      if (ids.size() < minGuarantors) {
         return ResponseEntity.badRequest()
-            .body(Map.of("error", "Select at least " + MIN_LOAN_GUARANTORS + " guarantors"));
+            .body(Map.of("error", "Select at least " + minGuarantors + " guarantor" + (minGuarantors == 1 ? "" : "s")));
       }
       for (String guarantorId : ids) {
         Member guarantor = memberRepository.findById(guarantorId).orElse(null);
         if (guarantor == null || !id.equals(guarantor.getCooperativeId())) {
-          return ResponseEntity.status(400)
-              .body(Map.of("error", "Every guarantor must be a member of this co-operative"));
+          return ResponseEntity.badRequest().body(Map.of("error", "Every guarantor must be a member of this co-operative"));
         }
         if (!"Active".equals(guarantor.getStatus())) {
-          return ResponseEntity.status(400)
+          return ResponseEntity.badRequest()
               .body(Map.of("error", guarantor.getFullName() + " isn't an active member, so they can't guarantee a loan"));
         }
         if (guarantor.getId().equals(member.getId())) {
@@ -178,71 +208,69 @@ public class LoanSelfServiceController {
       }
     }
 
-    BigDecimal totalSavings = savingsRecordRepository.sumByMember(member.getId());
-    BigDecimal eligibility = LoanEligibility.forMode(totalSavings, type, mode);
+    BigDecimal eligibility = LoanEligibility.forMode(totalSavings, type, mode, coop);
     if (request.amount().compareTo(eligibility) > 0) {
       return ResponseEntity.status(409)
-          .body(
-              Map.of(
-                  "error",
-                  within
-                      ? "A Within loan can't be more than your savings (or this loan type's maximum)"
-                      : "A Times two loan can't be more than twice your savings (or this loan type's maximum)"));
+          .body(Map.of("error", "The most you can borrow on this loan type is " + naira(eligibility)));
     }
 
-    // Interest follows the loan type — a percentage of the amount, a fixed amount, or none for a
-    // "NoInterest" type. The record keeps the effective percentage so "x% flat" displays stay
-    // right for a fixed-amount type too.
-    BigDecimal totalInterest = LoanEligibility.totalInterest(type, request.amount());
-    BigDecimal interestRate =
-        totalInterest.multiply(BigDecimal.valueOf(100)).divide(request.amount(), 2, RoundingMode.HALF_UP);
-    BigDecimal totalRepayment = request.amount().add(totalInterest);
-    int numberOfRepayments = type.getDurationMonths();
-    BigDecimal monthlyRepayment =
-        totalRepayment.divide(BigDecimal.valueOf(numberOfRepayments), 2, RoundingMode.HALF_UP);
-
+    LoanEligibility.Terms terms = LoanEligibility.terms(type, request.amount(), months);
     LoanRecord record =
         new LoanRecord(
             id,
             member.getId(),
             type.getId(),
             request.amount(),
-            interestRate,
-            type.getDurationMonths(),
-            numberOfRepayments,
-            monthlyRepayment,
-            totalRepayment,
+            terms.interestRate(),
+            months,
+            months,
+            terms.monthlyRepayment(),
+            terms.totalRepayment(),
             guarantors.isEmpty() ? null : guarantors.get(0).getId(),
-            guarantors.isEmpty()
-                ? null
-                : guarantors.stream().map(Member::getFullName).collect(java.util.stream.Collectors.joining(", ")),
-            within ? statusFor(CHAIN.get(0)) : AWAITING_GUARANTOR,
+            guarantors.isEmpty() ? null : guarantors.stream().map(Member::getFullName).collect(Collectors.joining(", ")),
+            guarantors.isEmpty() ? AWAITING_APPROVAL : AWAITING_GUARANTOR,
             mode);
+    if (guarantors.isEmpty()) record.setApprovalStep(1);
     loanRecordRepository.save(record);
     for (Member guarantor : guarantors) {
       loanGuarantorRepository.save(
           new LoanGuarantor(record.getId(), guarantor.getId(), guarantor.getFullName(), LoanGuarantor.PENDING));
+      notificationService.notify(
+          guarantor.getId(),
+          "LOAN_GUARANTOR_REQUEST",
+          "You've been asked to guarantee a loan",
+          member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
+          "/loans/request/" + record.getId());
     }
+    if (guarantors.isEmpty()) notifyApprover(record, member.getFullName(), type.getName());
 
-    if (within) {
-      notifyApprover(record, CHAIN.get(0), member.getFullName(), type.getName());
-    } else {
-      for (Member guarantor : guarantors) {
-        notificationService.notify(
-            guarantor.getId(),
-            "LOAN_GUARANTOR_REQUEST",
-            "You've been asked to guarantee a loan",
-            member.getFullName() + " has asked you to guarantee a " + type.getName() + " loan.",
-            "/loans/" + record.getId());
+    auditLogService.log(member.getId(), member.getRole(), "Loans", "Create", type.getName(), "Success", httpRequest);
+    return ResponseEntity.ok(dtoOf(record));
+  }
+
+  /** Null when the member meets the co-op's loan rules, else why not. */
+  private String eligibilityProblem(Cooperative coop, Member member, BigDecimal totalSavings) {
+    int minMonths = coop.getLoanMinMembershipMonths();
+    if (minMonths > 0 && member.getCreatedAt() != null) {
+      long monthsIn = ChronoUnit.MONTHS.between(member.getCreatedAt(), LocalDateTime.now());
+      if (monthsIn < minMonths) {
+        return "You can apply for a loan once you've been a member for " + minMonths + " month"
+            + (minMonths == 1 ? "" : "s") + ".";
       }
     }
-
-    auditLogService.log(
-        member.getId(), member.getRole(), "Loans", "Create", type.getName(), "Success", httpRequest);
-
-    return ResponseEntity.ok(
-        LoanRecordDto.from(record, member.getFullName(), type.getName(), guarantorsOf(record)));
+    if (coop.getLoanMinSavings().signum() > 0 && totalSavings.compareTo(coop.getLoanMinSavings()) < 0) {
+      return "You need at least " + naira(coop.getLoanMinSavings()) + " in savings to apply for a loan.";
+    }
+    if (!coop.isLoanAllowConcurrent()) {
+      boolean busy =
+          loanRecordRepository.findAllByCooperativeIdAndMemberIdOrderByCreatedAtDesc(coop.getId(), member.getId()).stream()
+              .anyMatch(loan -> "Active".equals(loan.getStatus()) || IN_PROGRESS.contains(loan.getStatus()));
+      if (busy) return "You already have a loan running or in progress. Apply again once it's repaid.";
+    }
+    return null;
   }
+
+  /* ─────────────────────────────── Guarantors ─────────────────────────────── */
 
   @PatchMapping("/api/v1/cooperatives/{id}/loans/{loanId}/guarantor-response")
   public ResponseEntity<?> guarantorResponse(
@@ -256,9 +284,7 @@ public class LoanSelfServiceController {
     Member caller = access.caller();
 
     LoanRecord record = findRecord(loanId);
-    if (record == null || !id.equals(record.getCooperativeId())) {
-      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
-    }
+    if (record == null || !id.equals(record.getCooperativeId())) return loanNotFound();
     List<LoanGuarantor> guarantors = guarantorsOf(record);
     LoanGuarantor mine =
         guarantors.stream().filter(g -> g.getMemberId().equals(caller.getId())).findFirst().orElse(null);
@@ -282,14 +308,13 @@ public class LoanSelfServiceController {
       if (notBlank(request.documentUrl()) && record.getGuarantorDocumentUrl() == null) {
         record.setGuarantorDocumentUrl(request.documentUrl());
       }
-      // The loan reaches the officers only once every guarantor has accepted.
-      boolean allAccepted = guarantors.stream().allMatch(g -> LoanGuarantor.ACCEPTED.equals(g.getStatus()));
-      if (allAccepted) {
-        String firstStep = CHAIN.get(0);
-        record.setStatus(statusFor(firstStep));
+      // The loan reaches the committee only once every guarantor has accepted.
+      if (guarantors.stream().allMatch(g -> LoanGuarantor.ACCEPTED.equals(g.getStatus()))) {
+        record.setStatus(AWAITING_APPROVAL);
+        record.setApprovalStep(1);
         record.setGuarantorAcceptedAt(LocalDateTime.now());
         loanRecordRepository.save(record);
-        notifyApprover(record, firstStep, applicantName, typeName);
+        notifyApprover(record, applicantName, typeName);
       } else {
         loanRecordRepository.save(record);
       }
@@ -305,19 +330,17 @@ public class LoanSelfServiceController {
             "LOAN_GUARANTOR_REJECTED",
             "Your loan application was declined",
             mine.getMemberName() + " declined to stand as guarantor for your " + typeName + " loan application.",
-            "/loans/" + record.getId());
+            "/loans/request/" + record.getId());
       }
     }
 
-    auditLogService.log(
-        caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
-
-    return ResponseEntity.ok(
-        LoanRecordDto.from(
-            record, applicant != null ? applicant.getFullName() : "Unknown member", typeName, guarantorsOf(record)));
+    auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
+    return ResponseEntity.ok(dtoOf(record));
   }
 
-  /** Where the loan is in the approval chain, and whether the caller can act on it. */
+  /* ─────────────────────────────── Committee ─────────────────────────────── */
+
+  /** The committee, the decisions so far, and what the caller can do on this loan right now. */
   @GetMapping("/api/v1/cooperatives/{id}/loans/{loanId}/approvals")
   public ResponseEntity<?> approvals(
       Authentication authentication, @PathVariable String id, @PathVariable String loanId) {
@@ -326,59 +349,64 @@ public class LoanSelfServiceController {
     Member caller = access.caller();
 
     LoanRecord record = findRecord(loanId);
-    if (record == null || !id.equals(record.getCooperativeId())) {
-      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
-    }
-    boolean isParty = isPartyTo(caller.getId(), record);
-    boolean isStaff =
-        "super_admin".equals(caller.getRole())
-            || isCooperativeAdmin(caller, id)
-            || caller.getCoopRoleId() != null;
-    boolean canReadRequests =
-        "super_admin".equals(caller.getRole())
-            || isCooperativeAdmin(caller, id)
-            || coopPermissions.allows(caller, id, "Loans", "Requests", false);
-    if (!isParty && (!isStaff || !canReadRequests)) {
+    if (record == null || !id.equals(record.getCooperativeId())) return loanNotFound();
+    List<Step> steps = loanCommittee.stepsOf(id);
+    if (!canView(caller, record, steps)) {
       return ResponseEntity.status(403).body(Map.of("error", "You can't view this loan's approvals"));
     }
 
     List<LoanApprovalStatusDto.Step> chain =
-        CHAIN.stream()
-            .map(
-                office ->
-                    new LoanApprovalStatusDto.Step(
-                        office,
-                        CoopOffices.nameOf(office),
-                        coopOffices.holderOf(id, office).map(Member::getFullName).orElse(null)))
+        steps.stream()
+            .map(s -> new LoanApprovalStatusDto.Step(s.position(), s.title(), s.member().getId(), s.member().getFullName()))
             .toList();
     List<LoanApprovalStatusDto.Decision> trail =
         loanApprovalRepository.findAllByLoanIdOrderByActedAtAsc(record.getId()).stream()
-            .map(approval -> LoanApprovalStatusDto.Decision.from(approval, CoopOffices.nameOf(approval.getStep())))
+            .map(a -> LoanApprovalStatusDto.Decision.from(a, a.getPosition() != null ? a.getStep() : legacyTitle(a.getStep())))
             .toList();
 
-    Authority authority = authorityFor(caller, record);
-    BigDecimal net = null;
+    Step current = loanCommittee.currentStep(steps, record);
+    Actor actor = current == null ? null : actorFor(current, record);
+    boolean isActor = actor != null && actor.member().getId().equals(caller.getId());
+    boolean canReject = isActor || (canOverride(caller, record) && isOpen(record));
+    boolean isBorrower = caller.getId().equals(record.getMemberId());
+
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
-    if (coop != null) {
-      net = record.getAmount().subtract(loansChargeFor(coop, platformSettings(), record.getAmount()));
+    LoanType type = loanTypeRepository.findById(record.getLoanTypeId()).orElse(null);
+    BigDecimal net =
+        coop == null ? null : record.getAmount().subtract(loansChargeFor(coop, platformSettings(), record.getAmount()));
+
+    LoanApprovalStatusDto.RegisteredAccount registered = null;
+    if (isBorrower) {
+      Member borrower = caller;
+      if (notBlank(borrower.getAccountNumber())) {
+        registered =
+            new LoanApprovalStatusDto.RegisteredAccount(
+                borrower.getBankCode(), mask(borrower.getAccountNumber()), borrower.getAccountName());
+      }
     }
 
     return ResponseEntity.ok(
         new LoanApprovalStatusDto(
             chain,
             trail,
-            officeForStatus(record.getStatus()),
-            authority.canApprove(),
-            authority.canReject(),
-            authority.actingAsLabel(),
-            net));
+            stageOf(record),
+            current == null ? null : current.position(),
+            isActor,
+            canReject,
+            isActor ? actor.label(current) : canReject ? "Admin" : null,
+            isActor && current.position() == steps.size(),
+            isBorrower && AWAITING_ACCEPTANCE.equals(record.getStatus()),
+            PENDING_DISBURSEMENT.equals(record.getStatus()) && canDisburse(caller, record),
+            type == null ? record.getRequestedMonths() : type.getDurationMonths(),
+            coop == null ? BigDecimal.ZERO : coop.getLoanMinAmount(),
+            net,
+            registered));
   }
 
   /**
-   * An officer's decision on the loan's current step. Approving at Vice President or Treasurer
-   * moves it to the next office; approving at Secretary pays it out to the member's bank account
-   * and makes it Active — if the payout fails, nothing is recorded and the Secretary can retry
-   * (the transfer reference is fixed per loan, so a retry can never pay twice).
+   * A committee member's decision on the step the loan is waiting on. Approving needs the amount
+   * and repayment period they suggest — never more than was asked for, never longer than the loan
+   * type allows. The last approver's figures are offered to the borrower.
    */
   @PatchMapping("/api/v1/cooperatives/{id}/loans/{loanId}/decision")
   public ResponseEntity<?> decide(
@@ -392,214 +420,406 @@ public class LoanSelfServiceController {
     Member caller = access.caller();
 
     LoanRecord record = findRecord(loanId);
-    if (record == null || !id.equals(record.getCooperativeId())) {
-      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
+    if (record == null || !id.equals(record.getCooperativeId())) return loanNotFound();
+    if (caller.getId().equals(record.getMemberId())) {
+      return ResponseEntity.status(403).body(Map.of("error", "You can't approve or reject your own loan"));
     }
 
-    if (!isCooperativeAdmin(caller, id)
-        && !coopPermissions.allows(caller, id, "Loans", "Requests", true)) {
-      return ResponseEntity.status(403)
-          .body(Map.of("error", "Your role doesn't have write access to loan requests"));
-    }
-
+    List<Step> steps = loanCommittee.stepsOf(id);
+    Step current = loanCommittee.currentStep(steps, record);
+    Actor actor = current == null ? null : actorFor(current, record);
+    boolean isActor = actor != null && actor.member().getId().equals(caller.getId());
     boolean approving = "Approved".equals(request.decision());
-    Authority authority = authorityFor(caller, record);
-    if (approving ? !authority.canApprove() : !authority.canReject()) {
-      return ResponseEntity.status(403).body(Map.of("error", cannotActReason(caller, record, approving)));
-    }
 
     Member applicant = memberRepository.findById(record.getMemberId()).orElse(null);
     String applicantName = applicant != null ? applicant.getFullName() : "Unknown member";
     String typeName = typeNameOf(record);
 
     if (!approving) {
-      String reason = notBlank(request.rejectionReason())
-          ? request.rejectionReason().trim()
-          : "Declined by the " + CoopOffices.nameOf(authority.office()) + ".";
+      if (!isActor && !(canOverride(caller, record) && isOpen(record))) {
+        return ResponseEntity.status(403).body(Map.of("error", cannotActReason(caller, record, current, actor)));
+      }
+      if (!notBlank(request.rejectionReason())) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Give a reason so the member knows what to do next"));
+      }
+      String reason = request.rejectionReason().trim();
+      String title = isActor ? current.title() : "Admin";
       record.setStatus("Rejected");
       record.setRejectionReason(reason);
+      record.setApprovalStep(null);
       loanRecordRepository.save(record);
-      saveDecision(record, authority, caller, "Rejected", reason);
+      loanApprovalRepository.save(
+          LoanApproval.committee(
+              record.getId(), current == null ? 0 : current.position(), title, "Rejected",
+              caller.getId(), caller.getFullName(), isActor && actor.covering(), reason, null, null, null, null));
       if (applicant != null) {
         notificationService.notify(
             applicant.getId(),
             "LOAN_DECISION",
             "Your loan was declined",
             "Your " + typeName + " loan application was declined: " + reason,
-            "/loans/" + record.getId());
+            "/loans/request/" + record.getId());
       }
       auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Warning", httpRequest);
-      return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName, guarantorsOf(record)));
+      return ResponseEntity.ok(dtoOf(record));
     }
 
-    String step = authority.office();
-    int stepIndex = CHAIN.indexOf(step);
-    boolean finalStep = stepIndex == CHAIN.size() - 1;
+    if (!isActor) {
+      return ResponseEntity.status(403).body(Map.of("error", cannotActReason(caller, record, current, actor)));
+    }
+    LoanType type = loanTypeRepository.findById(record.getLoanTypeId()).orElse(null);
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (type == null || coop == null) return loanNotFound();
 
-    if (!finalStep) {
-      String nextStep = CHAIN.get(stepIndex + 1);
-      record.setStatus(statusFor(nextStep));
+    BigDecimal amount = request.suggestedAmount();
+    Integer months = request.suggestedMonths();
+    if (amount == null || amount.signum() <= 0) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Enter the amount you're approving"));
+    }
+    if (months == null) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Enter the repayment period you're approving"));
+    }
+    amount = amount.setScale(2, RoundingMode.HALF_UP);
+    if (amount.compareTo(record.getRequestedAmount()) > 0) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "You can't approve more than the " + naira(record.getRequestedAmount()) + " requested"));
+    }
+    if (coop.getLoanMinAmount().signum() > 0 && amount.compareTo(coop.getLoanMinAmount()) < 0) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "The smallest loan is " + naira(coop.getLoanMinAmount())));
+    }
+    if (months < 1 || months > type.getDurationMonths()) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "The repayment period must be between 1 and " + type.getDurationMonths() + " months"));
+    }
+
+    BigDecimal previousAmount = record.getAmount();
+    int previousMonths = record.getDurationMonths();
+    LoanEligibility.Terms terms = LoanEligibility.terms(type, amount, months);
+    record.applyTerms(amount, months, terms.interestRate(), terms.monthlyRepayment(), terms.totalRepayment());
+
+    loanApprovalRepository.save(
+        LoanApproval.committee(
+            record.getId(), current.position(), current.title(), "Approved",
+            caller.getId(), caller.getFullName(), actor.covering(),
+            notBlank(request.note()) ? request.note().trim() : null,
+            amount, months, previousAmount, previousMonths));
+
+    boolean finalStep = current.position() >= steps.size();
+    if (finalStep) {
+      record.setStatus(AWAITING_ACCEPTANCE);
+      record.setApprovalStep(null);
       loanRecordRepository.save(record);
-      saveDecision(record, authority, caller, "Approved", null);
-      notifyApprover(record, nextStep, applicantName, typeName);
-      auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
-      return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName, guarantorsOf(record)));
+      if (applicant != null) {
+        notificationService.notify(
+            applicant.getId(),
+            "LOAN_DECISION",
+            "Your loan was approved: accept the offer",
+            "Your " + typeName + " loan was approved for " + naira(amount) + " over " + months + " month"
+                + (months == 1 ? "" : "s") + ". Accept it and choose where the money should be paid.",
+            "/loans/request/" + record.getId());
+      }
+    } else {
+      record.setApprovalStep(current.position() + 1);
+      loanRecordRepository.save(record);
+      notifyApprover(record, applicantName, typeName);
     }
 
-    // Final step — pay the loan out before recording the approval.
-    if (applicant == null || !notBlank(applicant.getBankCode()) || !notBlank(applicant.getAccountNumber())) {
-      return ResponseEntity.status(409)
-          .body(Map.of("error", applicantName + " hasn't added a verified bank account yet, so the loan can't be paid out."));
+    auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
+    return ResponseEntity.ok(dtoOf(record));
+  }
+
+  /* ─────────────────────────────── Borrower's answer ─────────────────────────────── */
+
+  /**
+   * The borrower accepts or declines the approved terms. Accepting chooses the payout account:
+   * their registered one, or another account, which must be in their registered name (the bank
+   * is asked for the real account name when Paystack is connected).
+   */
+  @PostMapping("/api/v1/cooperatives/{id}/loans/{loanId}/offer-response")
+  public ResponseEntity<?> offerResponse(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String loanId,
+      @Valid @RequestBody OfferResponse request,
+      HttpServletRequest httpRequest) {
+    var access = requireMemberOfCoop(authentication, id);
+    if (access.error() != null) return access.error();
+    Member caller = access.caller();
+
+    LoanRecord record = findRecord(loanId);
+    if (record == null || !id.equals(record.getCooperativeId())) return loanNotFound();
+    if (!caller.getId().equals(record.getMemberId())) {
+      return ResponseEntity.status(403).body(Map.of("error", "Only the borrower can accept or decline this loan"));
     }
-    String payoutKey = gatewayResolver.payoutSecretKeyFor(id).orElse(null);
-    if (payoutKey == null) {
-      return ResponseEntity.status(409)
-          .body(Map.of("error", "No Paystack account is set up to pay out loans. Connect one in Settings → Integrations."));
+    if (!AWAITING_ACCEPTANCE.equals(record.getStatus())) {
+      return ResponseEntity.status(409).body(Map.of("error", "This loan isn't waiting for your answer"));
+    }
+    String typeName = typeNameOf(record);
+
+    if ("Declined".equals(request.decision())) {
+      record.declineOffer();
+      record.setStatus("Declined");
+      record.setRejectionReason(
+          notBlank(request.reason()) ? "Declined by the borrower: " + request.reason().trim() : "Declined by the borrower.");
+      loanRecordRepository.save(record);
+      notificationService.notifyCoopAdmin(
+          id,
+          "LOAN_DECISION",
+          "A loan offer was declined",
+          caller.getFullName() + " declined the approved " + typeName + " loan.",
+          "/loans/request/" + record.getId());
+      auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Warning", httpRequest);
+      return ResponseEntity.ok(dtoOf(record));
+    }
+
+    if (!notBlank(request.accountType())) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Choose where the money should be paid"));
+    }
+    if ("Registered".equals(request.accountType())) {
+      if (!notBlank(caller.getAccountNumber()) || !notBlank(caller.getBankCode())) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "You haven't added a bank account to your profile. Choose another account, or add one to your profile first."));
+      }
+      record.acceptOffer(
+          "Registered",
+          caller.getBankCode(),
+          notBlank(request.bankName()) ? request.bankName().trim() : null,
+          caller.getAccountNumber(),
+          notBlank(caller.getAccountName()) ? caller.getAccountName() : caller.getFullName(),
+          true);
+    } else {
+      if (!notBlank(request.bankCode()) || !notBlank(request.accountNumber())) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Choose the bank and enter the 10-digit account number"));
+      }
+      String key = gatewayResolver.payoutSecretKeyFor(id).orElse(platformSettings().getPaystackSecretKey());
+      PaymentGatewayService.BankResolveResult resolved =
+          paymentGatewayService.resolvePaystackBankAccount(request.accountNumber(), request.bankCode(), key);
+      String accountName;
+      boolean verified;
+      if (resolved.success()) {
+        accountName = resolved.accountName();
+        verified = true;
+      } else if (key == null || key.isBlank()) {
+        // No way to ask the bank: fall back to the name the member typed, flagged as unverified.
+        if (!notBlank(request.accountName())) {
+          return ResponseEntity.badRequest().body(Map.of("error", "Enter the name on the account"));
+        }
+        accountName = request.accountName().trim();
+        verified = false;
+      } else {
+        return ResponseEntity.status(422)
+            .body(Map.of("error", resolved.message() != null ? resolved.message() : "We couldn't verify that account."));
+      }
+      if (!nameMatches(accountName, caller)) {
+        return ResponseEntity.status(422)
+            .body(
+                Map.of(
+                    "error",
+                    "This account is in the name \"" + accountName + "\". It must be in your registered name, "
+                        + caller.getFullName() + "."));
+      }
+      record.acceptOffer(
+          "Other",
+          request.bankCode().trim(),
+          notBlank(request.bankName()) ? request.bankName().trim() : null,
+          request.accountNumber(),
+          accountName,
+          verified);
+    }
+    record.setStatus(PENDING_DISBURSEMENT);
+    loanRecordRepository.save(record);
+    notificationService.notifyCoopAdmin(
+        id,
+        "LOAN_APPROVAL_REQUEST",
+        "A loan is ready to pay out",
+        caller.getFullName() + " accepted the approved " + typeName + " loan of " + naira(record.getAmount())
+            + ". It's ready to be disbursed.",
+        "/loans/request/" + record.getId());
+    auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
+    return ResponseEntity.ok(dtoOf(record));
+  }
+
+  /**
+   * True when the account name is the member's own: it must contain both their first and last
+   * names (any order, any case; middle names and initials are allowed).
+   */
+  static boolean nameMatches(String accountName, Member member) {
+    Set<String> tokens = tokens(accountName);
+    Set<String> first = tokens(member.getFirstName());
+    Set<String> last = tokens(member.getLastName());
+    return !first.isEmpty() && !last.isEmpty() && tokens.containsAll(first) && tokens.containsAll(last);
+  }
+
+  private static Set<String> tokens(String value) {
+    if (value == null) return Set.of();
+    return Arrays.stream(value.toLowerCase(Locale.ROOT).split("[^\\p{L}]+"))
+        .filter(token -> !token.isBlank())
+        .collect(Collectors.toSet());
+  }
+
+  /* ─────────────────────────────── Disbursement ─────────────────────────────── */
+
+  /**
+   * Pays an accepted loan out: online (Paystack transfer to the account the borrower chose) or
+   * by cheque (a photo or scan of it). The transfer reference is fixed per loan, so a retry can
+   * never pay twice.
+   */
+  @PostMapping("/api/v1/cooperatives/{id}/loans/{loanId}/disburse")
+  public ResponseEntity<?> disburse(
+      Authentication authentication,
+      @PathVariable String id,
+      @PathVariable String loanId,
+      @Valid @RequestBody Disburse request,
+      HttpServletRequest httpRequest) {
+    var access = requireMemberOfCoop(authentication, id);
+    if (access.error() != null) return access.error();
+    Member caller = access.caller();
+
+    LoanRecord record = findRecord(loanId);
+    if (record == null || !id.equals(record.getCooperativeId())) return loanNotFound();
+    if (!canDisburse(caller, record)) {
+      return ResponseEntity.status(403).body(Map.of("error", "You can't pay out this loan"));
+    }
+    if (!PENDING_DISBURSEMENT.equals(record.getStatus())) {
+      return ResponseEntity.status(409).body(Map.of("error", "This loan isn't waiting to be paid out"));
     }
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);
-    if (coop == null) {
-      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
-    }
-    // A Within loan comes out of the member's savings — they may have withdrawn since applying.
+    if (coop == null) return coopNotFound();
+    Member applicant = memberRepository.findById(record.getMemberId()).orElse(null);
+    String applicantName = applicant != null ? applicant.getFullName() : "Unknown member";
+    String typeName = typeNameOf(record);
+
+    // A Within loan comes out of the member's savings; they may have withdrawn since applying.
     if (record.isWithin()
         && savingsRecordRepository.sumByMember(record.getMemberId()).compareTo(record.getAmount()) < 0) {
       return ResponseEntity.status(409)
           .body(Map.of("error", applicantName + "'s savings no longer cover this Within loan, so it can't be paid out."));
     }
     BigDecimal net = record.getAmount().subtract(loansChargeFor(coop, platformSettings(), record.getAmount()));
-    String reference = "loan-" + record.getId().toString().toLowerCase();
+    String reference;
+    String transferStatus;
 
-    PaymentGatewayService.TransferResult transfer =
-        paymentGatewayService.initiatePaystackTransfer(
-            payoutKey,
-            notBlank(applicant.getAccountName()) ? applicant.getAccountName() : applicantName,
-            applicant.getAccountNumber(),
-            applicant.getBankCode(),
-            net,
-            coop.getName() + " loan disbursement — " + typeName,
-            reference);
-    if (!transfer.success()) {
-      return ResponseEntity.status(502)
-          .body(Map.of("error", transfer.message() != null ? transfer.message() : "The payout didn't go through."));
+    if ("Online".equals(request.method())) {
+      String bankCode = notBlank(record.getPayoutBankCode()) ? record.getPayoutBankCode() : applicant == null ? null : applicant.getBankCode();
+      String accountNumber =
+          notBlank(record.getPayoutAccountNumber()) ? record.getPayoutAccountNumber() : applicant == null ? null : applicant.getAccountNumber();
+      String accountName = notBlank(record.getPayoutAccountName()) ? record.getPayoutAccountName() : applicantName;
+      if (!notBlank(bankCode) || !notBlank(accountNumber)) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "There's no bank account to pay this loan into. Pay it by cheque instead."));
+      }
+      String payoutKey = gatewayResolver.payoutSecretKeyFor(id).orElse(null);
+      if (payoutKey == null) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "No Paystack account is set up to pay out loans. Connect one in Settings → Integrations, or pay by cheque."));
+      }
+      reference = "loan-" + record.getId().toString().toLowerCase();
+      PaymentGatewayService.TransferResult transfer =
+          paymentGatewayService.initiatePaystackTransfer(
+              payoutKey, accountName, accountNumber, bankCode, net,
+              coop.getName() + " loan disbursement — " + typeName, reference);
+      if (!transfer.success()) {
+        return ResponseEntity.status(502)
+            .body(Map.of("error", transfer.message() != null ? transfer.message() : "The payout didn't go through."));
+      }
+      transferStatus = transfer.status();
+    } else {
+      if (!notBlank(request.chequeUrl())) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Upload the cheque before disbursing"));
+      }
+      reference = "cheque-" + (notBlank(request.chequeNumber()) ? request.chequeNumber().trim() : record.getId().toString().substring(0, 8));
+      transferStatus = "Cheque";
     }
 
-    record.markDisbursed(reference, transfer.status(), net);
+    record.markDisbursed(reference, transferStatus, net);
+    record.setDisbursementDetails(
+        request.method(),
+        "Cheque".equals(request.method()) ? request.chequeUrl() : null,
+        "Cheque".equals(request.method()) && notBlank(request.chequeNumber()) ? request.chequeNumber().trim() : null,
+        caller.getFullName());
     record.setStatus("Active");
     loanRecordRepository.save(record);
-    saveDecision(record, authority, caller, "Approved", null);
 
     if (record.isWithin()) {
-      // The loan is borrowed from the member's own savings — take the principal out of them.
-      BigDecimal balanceAfter =
-          savingsRecordRepository.sumByMember(record.getMemberId()).subtract(record.getAmount());
+      // The loan is borrowed from the member's own savings: take the principal out of them.
+      BigDecimal balanceAfter = savingsRecordRepository.sumByMember(record.getMemberId()).subtract(record.getAmount());
       savingsRecordRepository.save(
-          new SavingsRecord(
-              id,
-              record.getMemberId(),
-              null,
-              record.getAmount().negate(),
-              balanceAfter,
-              "Loan Disbursement",
-              reference,
-              "Success",
-              null));
+          new SavingsRecord(id, record.getMemberId(), null, record.getAmount().negate(), balanceAfter,
+              "Loan Disbursement", reference, "Success", null));
     }
-
-    notificationService.notify(
-        applicant.getId(),
-        "LOAN_DISBURSED",
-        "Your loan has been paid out",
-        "Your " + typeName + " loan was approved and " + net + " has been sent to your bank account.",
-        "/loans/" + record.getId());
-
+    if (applicant != null) {
+      notificationService.notify(
+          applicant.getId(),
+          "LOAN_DISBURSED",
+          "Your loan has been paid out",
+          "Cheque".equals(request.method())
+              ? "Your " + typeName + " loan of " + naira(net) + " has been paid by cheque."
+              : "Your " + typeName + " loan was paid out: " + naira(net) + " has been sent to your bank account.",
+          "/loans/" + record.getId());
+    }
     auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Update", typeName, "Success", httpRequest);
-    return ResponseEntity.ok(LoanRecordDto.from(record, applicantName, typeName, guarantorsOf(record)));
+    return ResponseEntity.ok(dtoOf(record));
   }
 
-  /** What the caller may do on this loan right now. {@code office} is the step the decision is
-   * recorded against; {@code covering} means someone other than that office's holder is standing
-   * in for it, and {@code coveredBy} says who ("Admin", "President", ...). */
-  private record Authority(
-      boolean canApprove, boolean canReject, String office, boolean covering, String coveredBy) {
-    static final Authority NONE = new Authority(false, false, null, false, null);
+  /* ─────────────────────────────── Who can do what ─────────────────────────────── */
 
-    String actingAsLabel() {
-      if (office == null) return null;
-      return covering
-          ? coveredBy + " (covering for " + CoopOffices.nameOf(office) + ")"
-          : CoopOffices.nameOf(office);
+  /** Who acts on a step, and whether they're covering for the committee member. */
+  private record Actor(Member member, boolean covering) {
+    String label(Step step) {
+      return covering ? "Admin (covering for " + step.title() + ")" : step.title();
     }
-  }
-
-  /** Who acts on a step, and whether they're covering for the office. */
-  private record Actor(Member member, boolean covering, String label) {}
-
-  private Authority authorityFor(Member caller, LoanRecord record) {
-    String cooperativeId = record.getCooperativeId();
-    if (!cooperativeId.equals(caller.getCooperativeId())) return Authority.NONE;
-    // The borrower never acts on their own loan.
-    if (caller.getId().equals(record.getMemberId())) return Authority.NONE;
-
-    String step = officeForStatus(record.getStatus());
-    if (step != null) {
-      Actor actor = actorFor(cooperativeId, step, record);
-      if (actor != null && actor.member().getId().equals(caller.getId())) {
-        return new Authority(true, true, step, actor.covering(), actor.label());
-      }
-    }
-
-    boolean stillOpen = step != null || AWAITING_GUARANTOR.equals(record.getStatus());
-    if (stillOpen
-        && CoopOffices.PRESIDENT.equals(coopOffices.officeOf(caller))
-        && !isPartyTo(caller.getId(), record)) {
-      return new Authority(false, true, CoopOffices.PRESIDENT, false, null);
-    }
-    return Authority.NONE;
   }
 
   /**
-   * Who acts on this step. Nobody should approve a loan they guarantee, so it goes, in order, to:
-   * the office holder; else the co-op admin; else the President; else any other officer — each
-   * only if they're not the borrower or a guarantor. If every one of them is a guarantor, the
-   * office holder (then the admin) acts anyway so the loan can never get stuck — but the
-   * borrower never does.
+   * Who acts on this step. Nobody approves a loan they borrow or guarantee, so if the committee
+   * member is a party to it, the co-op admin covers; if the admin is too, the committee member
+   * acts anyway (as long as they aren't the borrower), so a loan can never get stuck.
    */
-  private Actor actorFor(String cooperativeId, String office, LoanRecord record) {
-    Member holder = coopOffices.holderOf(cooperativeId, office).orElse(null);
-    Member admin = memberRepository.findById(cooperativeId).orElse(null);
-    if (holder != null && !isPartyTo(holder.getId(), record)) return new Actor(holder, false, null);
-    if (admin != null && !isPartyTo(admin.getId(), record)) return new Actor(admin, true, "Admin");
-    for (String other :
-        List.of(CoopOffices.PRESIDENT, CoopOffices.VICE_PRESIDENT, CoopOffices.TREASURER, CoopOffices.SECRETARY)) {
-      if (other.equals(office)) continue;
-      Member officer = coopOffices.holderOf(cooperativeId, other).orElse(null);
-      if (officer != null && !isPartyTo(officer.getId(), record)) {
-        return new Actor(officer, true, CoopOffices.nameOf(other));
-      }
-    }
-    String borrower = record.getMemberId();
-    if (holder != null && !holder.getId().equals(borrower)) return new Actor(holder, false, null);
-    if (admin != null && !admin.getId().equals(borrower)) return new Actor(admin, true, "Admin");
+  private Actor actorFor(Step step, LoanRecord record) {
+    Member holder = step.member();
+    if (!isPartyTo(holder.getId(), record)) return new Actor(holder, false);
+    Member admin = memberRepository.findById(record.getCooperativeId()).orElse(null);
+    if (admin != null && !isPartyTo(admin.getId(), record)) return new Actor(admin, true);
+    if (!holder.getId().equals(record.getMemberId())) return new Actor(holder, false);
+    if (admin != null && !admin.getId().equals(record.getMemberId())) return new Actor(admin, true);
     return null;
   }
 
-  /** Why the caller can't act right now — so the screen says something useful instead of 403. */
-  private String cannotActReason(Member caller, LoanRecord record, boolean approving) {
-    if (caller.getId().equals(record.getMemberId())) return "You can't approve or reject your own loan";
-    String step = officeForStatus(record.getStatus());
-    if (step == null) {
-      return AWAITING_GUARANTOR.equals(record.getStatus())
-          ? "This loan is still waiting for its guarantors to accept"
-          : "This loan is no longer waiting for a decision";
-    }
-    Actor actor = actorFor(record.getCooperativeId(), step, record);
+  private String cannotActReason(Member caller, LoanRecord record, Step current, Actor actor) {
+    if (AWAITING_GUARANTOR.equals(record.getStatus())) return "This loan is still waiting for its guarantors to accept";
+    if (current == null) return "This loan is no longer waiting for a committee decision";
     String who = actor == null ? "someone else" : actor.member().getFullName();
     if (isPartyTo(caller.getId(), record)) {
-      return "You're a guarantor on this loan, so " + who + " handles the " + CoopOffices.nameOf(step) + " step";
+      return "You're a guarantor on this loan, so " + who + " handles the " + current.title() + " step";
     }
-    return approving
-        ? "This loan is waiting for the " + CoopOffices.nameOf(step) + " (" + who + "), not you"
-        : "You can't reject this loan";
+    return "This loan is waiting for the " + current.title() + " (" + who + "), not you";
+  }
+
+  /** The co-op admin can reject a loan at any stage before it's paid out. */
+  private boolean canOverride(Member caller, LoanRecord record) {
+    return isCooperativeAdmin(caller, record.getCooperativeId()) && !caller.getId().equals(record.getMemberId());
+  }
+
+  private static boolean isOpen(LoanRecord record) {
+    return IN_PROGRESS.contains(record.getStatus());
+  }
+
+  private boolean canDisburse(Member caller, LoanRecord record) {
+    if (caller.getId().equals(record.getMemberId())) return false;
+    String coopId = record.getCooperativeId();
+    return isCooperativeAdmin(caller, coopId)
+        || (coopId.equals(caller.getCooperativeId()) && coopPermissions.allows(caller, coopId, "Loans", "Requests", true));
+  }
+
+  /** The borrower, a guarantor, a committee member, or staff who can read loan requests. */
+  private boolean canView(Member caller, LoanRecord record, List<Step> steps) {
+    String coopId = record.getCooperativeId();
+    return "super_admin".equals(caller.getRole())
+        || isPartyTo(caller.getId(), record)
+        || isCooperativeAdmin(caller, coopId)
+        || steps.stream().anyMatch(s -> s.member().getId().equals(caller.getId()))
+        || (caller.getCoopRoleId() != null && coopPermissions.allows(caller, coopId, "Loans", "Requests", false));
   }
 
   /** The borrower, or any of the loan's guarantors. */
@@ -609,49 +829,71 @@ public class LoanSelfServiceController {
         || loanGuarantorRepository.existsByLoanIdAndMemberId(record.getId(), memberId);
   }
 
-  private List<LoanGuarantor> guarantorsOf(LoanRecord record) {
-    return loanGuarantorRepository.findAllByLoanIdOrderByCreatedAtAsc(record.getId());
+  private static String stageOf(LoanRecord record) {
+    return switch (record.getStatus()) {
+      case AWAITING_GUARANTOR -> "Guarantors";
+      case AWAITING_APPROVAL -> "Approval";
+      case AWAITING_ACCEPTANCE -> "Acceptance";
+      case PENDING_DISBURSEMENT -> "Disbursement";
+      default -> record.getStatus();
+    };
   }
 
-  private void notifyApprover(LoanRecord record, String office, String applicantName, String typeName) {
-    String officeName = CoopOffices.nameOf(office);
+  private void notifyApprover(LoanRecord record, String applicantName, String typeName) {
+    List<Step> steps = loanCommittee.stepsOf(record.getCooperativeId());
+    Step step = loanCommittee.currentStep(steps, record);
     String link = "/loans/request/" + record.getId();
-    Actor actor = actorFor(record.getCooperativeId(), office, record);
+    Actor actor = step == null ? null : actorFor(step, record);
     if (actor != null) {
       notificationService.notify(
           actor.member().getId(),
           "LOAN_APPROVAL_REQUEST",
           "A loan needs your approval",
-          applicantName + "'s " + typeName + " loan is waiting for your approval as " + officeName
-              + (actor.covering() ? " (you're covering for that office)." : "."),
+          applicantName + "'s " + typeName + " loan is waiting for your approval as " + step.title()
+              + (actor.covering() ? " (you're covering that step)." : "."),
           link);
     } else {
       notificationService.notifyCoopAdmin(
           record.getCooperativeId(),
           "LOAN_APPROVAL_REQUEST",
-          "A loan needs " + officeName + " approval",
-          applicantName + "'s " + typeName + " loan is waiting for " + officeName
-              + " approval. No one else can act on that step, so you can approve it.",
+          "A loan needs approval",
+          applicantName + "'s " + typeName + " loan is waiting for the loan committee.",
           link);
     }
   }
 
-  private void saveDecision(LoanRecord record, Authority authority, Member caller, String decision, String note) {
-    loanApprovalRepository.save(
-        new LoanApproval(
-            record.getId(), authority.office(), decision, caller.getId(), caller.getFullName(), authority.covering(), note));
+  /* ─────────────────────────────── Helpers ─────────────────────────────── */
+
+  private LoanRecordDto dtoOf(LoanRecord record) {
+    Member applicant = memberRepository.findById(record.getMemberId()).orElse(null);
+    List<Step> steps = loanCommittee.stepsOf(record.getCooperativeId());
+    return LoanRecordDto.from(
+        record,
+        applicant != null ? applicant.getFullName() : "Unknown member",
+        typeNameOf(record),
+        guarantorsOf(record),
+        loanCommittee.stepTitle(steps, record));
   }
 
-  private static String statusFor(String office) {
-    return "Awaiting " + CoopOffices.nameOf(office);
+  /** Decisions made under the old fixed chain stored the office code. */
+  private static String legacyTitle(String step) {
+    String name = CoopOffices.NAMES.get(step);
+    return name != null ? name : step;
   }
 
-  /** The chain office a status is waiting on, or null when it's not in the chain. */
-  private static String officeForStatus(String status) {
-    for (String office : CHAIN) {
-      if (statusFor(office).equals(status)) return office;
-    }
-    return null;
+  private static String mask(String accountNumber) {
+    if (accountNumber == null || accountNumber.length() <= 4) return accountNumber;
+    return "•".repeat(accountNumber.length() - 4) + accountNumber.substring(accountNumber.length() - 4);
+  }
+
+  private static String naira(BigDecimal amount) {
+    NumberFormat format = NumberFormat.getNumberInstance(Locale.US);
+    format.setMaximumFractionDigits(2);
+    return "₦" + format.format(amount);
+  }
+
+  private List<LoanGuarantor> guarantorsOf(LoanRecord record) {
+    return loanGuarantorRepository.findAllByLoanIdOrderByCreatedAtAsc(record.getId());
   }
 
   private String typeNameOf(LoanRecord record) {
@@ -679,15 +921,21 @@ public class LoanSelfServiceController {
     return value != null && !value.isBlank();
   }
 
+  private static ResponseEntity<?> loanNotFound() {
+    return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that loan"));
+  }
+
+  private static ResponseEntity<?> coopNotFound() {
+    return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+  }
+
   private BigDecimal feeFor(String type, BigDecimal feeAmount, BigDecimal amount) {
     if ("Fixed".equals(type)) return feeAmount;
     return amount.multiply(feeAmount).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
   }
 
-  /** The co-op's own loans-charge rate combined with the platform's, deducted from disbursement
-   * (see savings.SavingsSelfServiceController.savingsChargeFor for the same mechanics applied to
-   * deposits). The loan's own principal/repayment terms are untouched by this — the member still
-   * owes and repays the full approved amount regardless of what actually gets transferred. */
+  /** The co-op's own loans-charge rate combined with the platform's, deducted from disbursement.
+   * The member still owes and repays the full approved amount. */
   private BigDecimal loansChargeFor(Cooperative coop, PlatformSettings settings, BigDecimal loanAmount) {
     BigDecimal coopCharge = feeFor(coop.getLoansChargeType(), coop.getLoansChargeAmount(), loanAmount);
     BigDecimal platformCharge = feeFor(settings.getLoansChargeType(), settings.getLoansChargeAmount(), loanAmount);
@@ -714,10 +962,7 @@ public class LoanSelfServiceController {
     if (caller == null) {
       return new CoopAccess(null, ResponseEntity.status(401).body(Map.of("error", "Member no longer exists")));
     }
-    if ("super_admin".equals(caller.getRole())) {
-      return new CoopAccess(caller, null);
-    }
-    if (cooperativeId.equals(caller.getCooperativeId())) {
+    if ("super_admin".equals(caller.getRole()) || cooperativeId.equals(caller.getCooperativeId())) {
       return new CoopAccess(caller, null);
     }
     return new CoopAccess(

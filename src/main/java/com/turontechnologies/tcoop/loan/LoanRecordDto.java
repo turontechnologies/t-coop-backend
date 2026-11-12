@@ -7,9 +7,8 @@ import java.util.List;
 
 /**
  * One loan record — GET /api/v1/cooperatives/{id}/loans (list) and GET /api/v1/loans/{recordId}
- * (single). Matches the frontend's CoopLoanRecord shape in coop-data.ts, including the joined-in
- * memberName/loanType display strings. The disbursement fields stay null until the Secretary's
- * approval pays the loan out.
+ * (single). {@code amount}/{@code durationMonths} are the live terms (what the committee settled
+ * on so far); {@code requestedAmount}/{@code requestedMonths} are what the member asked for.
  */
 public record LoanRecordDto(
     String id,
@@ -34,7 +33,23 @@ public record LoanRecordDto(
     String disbursementReference,
     LocalDateTime disbursedAt,
     /** Every guarantor and where each stands (a Times two loan has two or more). */
-    List<GuarantorDto> guarantors) {
+    List<GuarantorDto> guarantors,
+    BigDecimal requestedAmount,
+    int requestedMonths,
+    /** 1-based committee position, while "Awaiting Approval". */
+    Integer approvalStep,
+    /** Who it's waiting on while "Awaiting Approval", e.g. "Treasurer" — for "Awaiting Treasurer". */
+    String approvalStepTitle,
+    LocalDateTime offerRespondedAt,
+    String payoutAccountType,
+    String payoutBankName,
+    String payoutAccountNumber,
+    String payoutAccountName,
+    Boolean payoutNameVerified,
+    String disbursementMethod,
+    String chequeUrl,
+    String chequeNumber,
+    String disbursedByName) {
 
   public record GuarantorDto(
       String memberId, String name, String status, String documentUrl, LocalDateTime respondedAt) {
@@ -48,13 +63,21 @@ public record LoanRecordDto(
     }
   }
 
-
   public static LoanRecordDto from(LoanRecord record, String memberName, String loanTypeName) {
-    return from(record, memberName, loanTypeName, List.of());
+    return from(record, memberName, loanTypeName, List.of(), null);
   }
 
   public static LoanRecordDto from(
       LoanRecord record, String memberName, String loanTypeName, List<LoanGuarantor> guarantors) {
+    return from(record, memberName, loanTypeName, guarantors, null);
+  }
+
+  public static LoanRecordDto from(
+      LoanRecord record,
+      String memberName,
+      String loanTypeName,
+      List<LoanGuarantor> guarantors,
+      String approvalStepTitle) {
     return new LoanRecordDto(
         record.getId().toString(),
         record.getMemberId(),
@@ -77,6 +100,20 @@ public record LoanRecordDto(
         record.getDisbursedAmount(),
         record.getDisbursementReference(),
         record.getDisbursedAt(),
-        guarantors.stream().map(GuarantorDto::from).toList());
+        guarantors.stream().map(GuarantorDto::from).toList(),
+        record.getRequestedAmount(),
+        record.getRequestedMonths(),
+        record.getApprovalStep(),
+        approvalStepTitle,
+        record.getOfferRespondedAt(),
+        record.getPayoutAccountType(),
+        record.getPayoutBankName(),
+        record.getPayoutAccountNumber(),
+        record.getPayoutAccountName(),
+        record.getPayoutNameVerified(),
+        record.getDisbursementMethod(),
+        record.getChequeUrl(),
+        record.getChequeNumber(),
+        record.getDisbursedByName());
   }
 }

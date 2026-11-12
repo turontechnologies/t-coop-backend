@@ -104,6 +104,41 @@ public class Cooperative {
   @Column(name = "min_guarantors")
   private int minGuarantors;
 
+  // Loan rules (V48), set by the co-op's admin in Settings -> Loans.
+  @Column(name = "loan_min_amount")
+  private BigDecimal loanMinAmount = BigDecimal.ZERO;
+
+  /** A "Times two" loan can be up to this many times the member's savings. */
+  @Column(name = "loan_savings_multiplier")
+  private BigDecimal loanSavingsMultiplier = BigDecimal.valueOf(2);
+
+  /** A "Within" loan can be up to this percentage of the member's savings. */
+  @Column(name = "loan_within_percent")
+  private BigDecimal loanWithinPercent = BigDecimal.valueOf(100);
+
+  @Column(name = "loan_min_membership_months")
+  private int loanMinMembershipMonths;
+
+  @Column(name = "loan_min_savings")
+  private BigDecimal loanMinSavings = BigDecimal.ZERO;
+
+  /** Off: a member with a loan running or in progress cannot apply for another. */
+  @Column(name = "loan_allow_concurrent")
+  private boolean loanAllowConcurrent = true;
+
+  @Column(name = "loan_min_guarantors")
+  private int loanMinGuarantors = 2;
+
+  /** "SavingsPercent", "InterestShare" or "None" (see DividendCalculator). */
+  @Column(name = "dividend_method")
+  private String dividendMethod = "SavingsPercent";
+
+  @Column(name = "dividend_rate")
+  private BigDecimal dividendRate = BigDecimal.valueOf(2);
+
+  @Column(name = "dividend_frequency")
+  private String dividendFrequency = "Annually";
+
   protected Cooperative() {
     // JPA
   }
@@ -338,6 +373,69 @@ public class Cooperative {
 
   public int getMinGuarantors() {
     return minGuarantors;
+  }
+
+  public BigDecimal getLoanMinAmount() {
+    return loanMinAmount;
+  }
+
+  public BigDecimal getLoanSavingsMultiplier() {
+    return loanSavingsMultiplier;
+  }
+
+  public BigDecimal getLoanWithinPercent() {
+    return loanWithinPercent;
+  }
+
+  public int getLoanMinMembershipMonths() {
+    return loanMinMembershipMonths;
+  }
+
+  public BigDecimal getLoanMinSavings() {
+    return loanMinSavings;
+  }
+
+  public boolean isLoanAllowConcurrent() {
+    return loanAllowConcurrent;
+  }
+
+  public int getLoanMinGuarantors() {
+    return loanMinGuarantors;
+  }
+
+  public String getDividendMethod() {
+    return dividendMethod;
+  }
+
+  public BigDecimal getDividendRate() {
+    return dividendRate;
+  }
+
+  public String getDividendFrequency() {
+    return dividendFrequency;
+  }
+
+  public void setLoanRules(
+      BigDecimal minAmount,
+      BigDecimal savingsMultiplier,
+      BigDecimal withinPercent,
+      int minMembershipMonths,
+      BigDecimal minSavings,
+      boolean allowConcurrent,
+      int minGuarantors) {
+    this.loanMinAmount = minAmount;
+    this.loanSavingsMultiplier = savingsMultiplier;
+    this.loanWithinPercent = withinPercent;
+    this.loanMinMembershipMonths = minMembershipMonths;
+    this.loanMinSavings = minSavings;
+    this.loanAllowConcurrent = allowConcurrent;
+    this.loanMinGuarantors = minGuarantors;
+  }
+
+  public void setDividendRules(String method, BigDecimal rate, String frequency) {
+    this.dividendMethod = method;
+    this.dividendRate = rate;
+    this.dividendFrequency = frequency;
   }
 
   public void setMinGuarantors(int minGuarantors) {
