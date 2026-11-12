@@ -19,6 +19,8 @@ public record NoticeDto(
     NoticeAttachmentDto attachment,
     String sendAt,
     String status,
+    /** Who sent it, so the reader can tell their own notices ("Sent") from ones they got. */
+    String createdById,
     String createdByName,
     String createdByRole,
     String createdAt,
@@ -48,6 +50,7 @@ public record NoticeDto(
         attachment,
         notice.getSendAt().atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT),
         notice.isSent() ? "Sent" : "Scheduled",
+        notice.getCreatedById(),
         notice.getCreatedByName(),
         notice.getCreatedByRole(),
         notice.getCreatedAt().atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT),

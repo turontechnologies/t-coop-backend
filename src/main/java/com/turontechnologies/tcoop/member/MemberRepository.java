@@ -11,6 +11,9 @@ public interface MemberRepository extends JpaRepository<Member, String> {
 
   Optional<Member> findByCooperativeIdAndAlternativeId(String cooperativeId, String alternativeId);
 
+  /** Every member with this alternative ID — it's unique per co-op, so there can be one per co-op. */
+  List<Member> findAllByAlternativeId(String alternativeId);
+
   Optional<Member> findByInviteToken(String inviteToken);
 
   long countByRoleIn(List<String> roles);

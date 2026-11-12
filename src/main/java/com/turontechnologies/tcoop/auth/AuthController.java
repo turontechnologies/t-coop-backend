@@ -91,13 +91,28 @@ public class AuthController {
   @PostMapping("/api/v1/auth/login")
   public ResponseEntity<?> login(
       @Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-    // Flexible on purpose: a co-op/member's own id, or any account's email, both work here —
-    // platform staff in particular only ever know their email, never a "membership ID".
+    // Flexible on purpose: a co-op/member's own id, their alternative ID, or any account's email
+    // all work here — platform staff in particular only ever know their email.
+    String identifier = request.membershipId().trim();
     var member =
         memberRepository
-            .findById(request.membershipId())
-            .or(() -> memberRepository.findByEmail(request.membershipId()))
+            .findById(identifier)
+            .or(() -> memberRepository.findByEmail(identifier))
             .orElse(null);
+
+    if (member == null) {
+      // An alternative ID is only unique within a co-op, so it can belong to people in different
+      // co-ops: the password decides which of them is signing in.
+      var matches =
+          memberRepository.findAllByAlternativeId(identifier).stream()
+              .filter(candidate -> passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
+              .toList();
+      if (matches.size() > 1) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "That ID is used in more than one co-operative. Log in with your membership ID instead."));
+      }
+      member = matches.isEmpty() ? null : matches.get(0);
+    }
 
     if (member == null || !passwordEncoder.matches(request.password(), member.getPasswordHash())) {
       return ResponseEntity.status(401).body(Map.of("error", INVALID_CREDENTIALS));

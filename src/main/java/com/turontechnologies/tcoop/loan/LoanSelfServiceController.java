@@ -84,6 +84,7 @@ public class LoanSelfServiceController {
   private final PlatformSettingsRepository platformSettingsRepository;
   private final LoanCommittee loanCommittee;
   private final LoanApplicationFeeRepository feeRepository;
+  private final LoanEligibilityService eligibilityService;
   private final CoopPermissions coopPermissions;
   private final CoopGatewayResolver gatewayResolver;
   private final PaymentGatewayService paymentGatewayService;
@@ -101,6 +102,7 @@ public class LoanSelfServiceController {
       PlatformSettingsRepository platformSettingsRepository,
       LoanCommittee loanCommittee,
       LoanApplicationFeeRepository feeRepository,
+      LoanEligibilityService eligibilityService,
       CoopPermissions coopPermissions,
       CoopGatewayResolver gatewayResolver,
       PaymentGatewayService paymentGatewayService,
@@ -116,6 +118,7 @@ public class LoanSelfServiceController {
     this.platformSettingsRepository = platformSettingsRepository;
     this.loanCommittee = loanCommittee;
     this.feeRepository = feeRepository;
+    this.eligibilityService = eligibilityService;
     this.coopPermissions = coopPermissions;
     this.gatewayResolver = gatewayResolver;
     this.paymentGatewayService = paymentGatewayService;
@@ -189,10 +192,12 @@ public class LoanSelfServiceController {
       }
     }
 
-    // The co-op's eligibility rules (Settings -> Loans).
-    BigDecimal totalSavings = savingsRecordRepository.sumByMember(member.getId());
-    String ruleProblem = eligibilityProblem(coop, member, totalSavings);
-    if (ruleProblem != null) return ResponseEntity.status(409).body(Map.of("error", ruleProblem));
+    // The co-op's eligibility rules and limits (Settings -> Loans): the same numbers the
+    // dashboard and the loan form show.
+    LoanEligibilityService.Result eligibilityResult = eligibilityService.evaluate(coop, member);
+    if (eligibilityResult.problem() != null) {
+      return ResponseEntity.status(409).body(Map.of("error", eligibilityResult.problem()));
+    }
 
     // A Within loan is secured by the member's own savings, so it has no guarantor. A Times two
     // loan needs at least the co-op's minimum number of guarantors.
@@ -224,7 +229,7 @@ public class LoanSelfServiceController {
       }
     }
 
-    BigDecimal eligibility = LoanEligibility.forMode(totalSavings, type, mode, coop);
+    BigDecimal eligibility = eligibilityResult.limit(type, mode);
     if (request.amount().compareTo(eligibility) > 0) {
       return ResponseEntity.status(409)
           .body(Map.of("error", "The most you can borrow on this loan type is " + naira(eligibility)));
@@ -269,26 +274,33 @@ public class LoanSelfServiceController {
     return ResponseEntity.ok(dtoOf(record));
   }
 
-  /** Null when the member meets the co-op's loan rules, else why not. */
-  private String eligibilityProblem(Cooperative coop, Member member, BigDecimal totalSavings) {
-    int minMonths = coop.getLoanMinMembershipMonths();
-    if (minMonths > 0 && member.getCreatedAt() != null) {
-      long monthsIn = ChronoUnit.MONTHS.between(member.getCreatedAt(), LocalDateTime.now());
-      if (monthsIn < minMonths) {
-        return "You can apply for a loan once you've been a member for " + minMonths + " month"
-            + (minMonths == 1 ? "" : "s") + ".";
-      }
-    }
-    if (coop.getLoanMinSavings().signum() > 0 && totalSavings.compareTo(coop.getLoanMinSavings()) < 0) {
-      return "You need at least " + naira(coop.getLoanMinSavings()) + " in savings to apply for a loan.";
-    }
-    if (!coop.isLoanAllowConcurrent()) {
-      boolean busy =
-          loanRecordRepository.findAllByCooperativeIdAndMemberIdOrderByCreatedAtDesc(coop.getId(), member.getId()).stream()
-              .anyMatch(loan -> "Active".equals(loan.getStatus()) || IN_PROGRESS.contains(loan.getStatus()));
-      if (busy) return "You already have a loan running or in progress. Apply again once it's repaid.";
-    }
-    return null;
+  /** What the signed-in member can borrow right now, per loan type and mode, and why not when
+   * a rule rules them out. The loan form and the dashboard both read this. */
+  @GetMapping("/api/v1/cooperatives/{id}/loans/eligibility")
+  public ResponseEntity<?> eligibility(Authentication authentication, @PathVariable String id) {
+    var access = requireMemberOfCoop(authentication, id);
+    if (access.error() != null) return access.error();
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) return coopNotFound();
+    LoanEligibilityService.Result result = eligibilityService.evaluate(coop, access.caller());
+    return ResponseEntity.ok(
+        Map.of(
+            "savings", result.savings(),
+            "problem", result.problem() == null ? "" : result.problem(),
+            "best", result.best(),
+            "tiedTimesTwo", result.tiedTimesTwo(),
+            "tiedWithin", result.tiedWithin(),
+            "perType",
+                result.perType().stream()
+                    .map(
+                        t ->
+                            Map.of(
+                                "loanTypeId", t.type().getId().toString(),
+                                "loanTypeName", t.type().getName(),
+                                "timesTwo", t.timesTwo(),
+                                "within", t.within(),
+                                "maxMonths", t.type().getDurationMonths()))
+                    .toList()));
   }
 
   /* ─────────────────────────────── Guarantors ─────────────────────────────── */

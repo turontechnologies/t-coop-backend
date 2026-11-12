@@ -693,6 +693,23 @@ mode/date/repayment count.
 
 ---
 
+### 6b. Loan committee, offers, payout, rules and fees — **built** (V48, V49)
+
+| Endpoint | Who | Does |
+|---|---|---|
+| `GET /cooperatives/:id/loan-settings` | anyone in the co-op | `{ minAmount, applicationFee, savingsMultiplier, withinPercent, minMembershipMonths, minSavings, allowConcurrentLoans, minGuarantors, dividendMethod: "SavingsPercent\|InterestShare\|None", dividendRate, dividendFrequency, committee: [{ position, memberId, memberName, title }], adminApprovesAlone, canEdit }` |
+| `PUT /cooperatives/:id/loan-settings` (same fields, `committee: [{ memberId, title }]` in order) | co-op admin, or Settings write | replaces the rules and the committee |
+| `POST /cooperatives/:id/loans` | member | now takes `durationMonths` (1..type max, default max); 402 if an application fee is due and unpaid; 409 with the rule that failed |
+| `GET /cooperatives/:id/loans/:loanId/approvals` | borrower, guarantors, committee, staff | `{ chain, trail (with suggestedAmount/Months, previousAmount/Months, note), stage, currentStep, canApprove, canReject, actingAs, finalStep, canRespondToOffer, canDisburse, maxMonths, minAmount, netDisbursement, registeredAccount }` |
+| `PATCH /cooperatives/:id/loans/:loanId/decision` `{ decision, rejectionReason, suggestedAmount, suggestedMonths, note }` | the committee member at the current step (admin covers conflicts); admin may reject at any open stage | approving needs the suggested terms; the last approver's terms → `Awaiting Acceptance` |
+| `POST /cooperatives/:id/loans/:loanId/offer-response` `{ decision: "Accepted\|Declined", accountType: "Registered\|Other", bankCode, bankName, accountNumber, accountName, reason }` | the borrower | `Other` must resolve (Paystack) to a name containing the member's first and last names, else 422 → `Pending Disbursement` |
+| `POST /cooperatives/:id/loans/:loanId/disburse` `{ method: "Online\|Cheque", chequeUrl, chequeNumber }` | admin or Loans→Requests write, not the borrower | pays out → `Active` |
+| `GET /cooperatives/:id/loans/awaiting-me` | anyone | loans waiting on the caller's committee step |
+| `GET /cooperatives/:id/loans/application-fee` | member | `{ fee, credit, canPayOnline, merchantName }` |
+| `POST …/application-fee/initialize`, `POST …/application-fee/confirm { reference }` | member | start the gateway checkout; verify it server-side |
+
+Loan statuses: `Awaiting Guarantor`, `Awaiting Approval` (+ `approvalStep`, `approvalStepTitle`), `Awaiting Acceptance`, `Pending Disbursement`, `Active`, `Completed`, `Rejected`, `Declined`. Loan records also carry `requestedAmount`, `requestedMonths`, the payout account fields, `disbursementMethod`, `chequeUrl`, `chequeNumber`, `disbursedByName` and the application fee.
+
 ## 7. Notices — **built** (2026-08-24)
 
 **Meetings (V42, `MeetingAttendanceController`).** A Meeting Notice requires `meetingDate`

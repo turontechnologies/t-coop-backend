@@ -51,7 +51,10 @@ public record LoanRecordDto(
     String chequeNumber,
     String disbursedByName,
     BigDecimal applicationFeeAmount,
-    String applicationFeeReference) {
+    String applicationFeeReference,
+    /** Repaid so far and still owed (principal + interest) — see LoanBalances. */
+    BigDecimal amountRepaid,
+    BigDecimal outstandingBalance) {
 
   public record GuarantorDto(
       String memberId, String name, String status, String documentUrl, LocalDateTime respondedAt) {
@@ -118,6 +121,8 @@ public record LoanRecordDto(
         record.getChequeNumber(),
         record.getDisbursedByName(),
         record.getApplicationFeeAmount(),
-        record.getApplicationFeeReference());
+        record.getApplicationFeeReference(),
+        LoanBalances.repaid(record),
+        LoanBalances.outstanding(record));
   }
 }
