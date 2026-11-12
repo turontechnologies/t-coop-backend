@@ -183,7 +183,8 @@ public class MeetingAttendanceController {
     return ResponseEntity.ok(registerOf(notice, caller));
   }
 
-  /** Officers mark who was Present or Absent. A null `attendance` clears that member's entry. */
+  /** Officers mark who was Present or Absent, live, while the meeting is on. A null `attendance`
+   * clears that member's entry. */
   @PutMapping("/api/v1/notices/{id}/attendance")
   @Transactional
   public ResponseEntity<?> mark(
@@ -197,18 +198,50 @@ public class MeetingAttendanceController {
     if (notice == null || !canViewRegister(caller, notice)) return notFound();
     ResponseEntity<?> denied = officerWriteDenied(caller, notice);
     if (denied != null) return denied;
+    return applyMarks(notice, caller, request, "Attendance", httpRequest);
+  }
+
+  /** Officers upload attendance from a spreadsheet (e.g. a paper register typed up afterwards).
+   * Unlike live marking this works at any time, before, during or after the meeting. */
+  @PutMapping("/api/v1/notices/{id}/attendance/import")
+  @Transactional
+  public ResponseEntity<?> importAttendance(
+      Authentication authentication,
+      @PathVariable UUID id,
+      @Valid @RequestBody MarkRequest request,
+      HttpServletRequest httpRequest) {
+    Member caller = callerOf(authentication);
+    if (caller == null) return unauthorized();
+    Notice notice = meetingNotice(id);
+    if (notice == null || !canViewRegister(caller, notice)) return notFound();
+    if (!isOfficerOf(caller, notice)) {
+      return ResponseEntity.status(403).body(Map.of("error", "Only the co-operative's officers can import attendance"));
+    }
+    if (!hasNoticeBoardWrite(caller, notice)) {
+      return ResponseEntity.status(403)
+          .body(Map.of("error", "Your role doesn't have write access to the Notice Board"));
+    }
+    return applyMarks(notice, caller, request, "Imported attendance", httpRequest);
+  }
+
+  private ResponseEntity<?> applyMarks(
+      Notice notice, Member caller, MarkRequest request, String auditLabel, HttpServletRequest httpRequest) {
+    UUID id = notice.getId();
 
     attendanceService.ensureRegister(notice);
     Map<String, MeetingAttendance> rows =
         attendanceRepository.findAllByNoticeId(id).stream()
             .filter(row -> row.getCooperativeId().equals(caller.getCooperativeId()))
             .collect(Collectors.toMap(MeetingAttendance::getMemberId, Function.identity()));
+    // Check every line first, so a bad one doesn't leave the upload half-applied.
     for (MarkEntry entry : request.entries()) {
-      MeetingAttendance row = rows.get(entry.memberId());
-      if (row == null) {
+      if (!rows.containsKey(entry.memberId())) {
         return ResponseEntity.badRequest()
             .body(Map.of("error", entry.memberId() + " isn't on this meeting's attendance list"));
       }
+    }
+    for (MarkEntry entry : request.entries()) {
+      MeetingAttendance row = rows.get(entry.memberId());
       String note = entry.note() == null || entry.note().isBlank() ? null : entry.note().trim();
       String attendance = entry.attendance() == null || entry.attendance().isBlank() ? null : entry.attendance();
       boolean unchanged =
@@ -220,7 +253,7 @@ public class MeetingAttendanceController {
       }
     }
     auditLogService.log(
-        caller.getId(), caller.getRole(), "Notices", "Update", "Attendance — " + notice.getTitle(), "Success", httpRequest);
+        caller.getId(), caller.getRole(), "Notices", "Update", auditLabel + " — " + notice.getTitle(), "Success", httpRequest);
 
     return ResponseEntity.ok(registerOf(notice, caller));
   }
