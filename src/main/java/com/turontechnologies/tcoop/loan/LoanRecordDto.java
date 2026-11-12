@@ -49,7 +49,9 @@ public record LoanRecordDto(
     String disbursementMethod,
     String chequeUrl,
     String chequeNumber,
-    String disbursedByName) {
+    String disbursedByName,
+    BigDecimal applicationFeeAmount,
+    String applicationFeeReference) {
 
   public record GuarantorDto(
       String memberId, String name, String status, String documentUrl, LocalDateTime respondedAt) {
@@ -114,6 +116,8 @@ public record LoanRecordDto(
         record.getDisbursementMethod(),
         record.getChequeUrl(),
         record.getChequeNumber(),
-        record.getDisbursedByName());
+        record.getDisbursedByName(),
+        record.getApplicationFeeAmount(),
+        record.getApplicationFeeReference());
   }
 }

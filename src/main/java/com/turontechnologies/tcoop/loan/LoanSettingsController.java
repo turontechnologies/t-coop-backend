@@ -45,6 +45,7 @@ public class LoanSettingsController {
 
   public record LoanSettingsRequest(
       @NotNull @DecimalMin(value = "0", message = "The minimum loan can't be negative") BigDecimal minAmount,
+      @NotNull @DecimalMin(value = "0", message = "The application fee can't be negative") BigDecimal applicationFee,
       @NotNull
           @DecimalMin(value = "0.1", message = "The savings multiple must be at least 0.1")
           @DecimalMax(value = "20", message = "The savings multiple can't be more than 20")
@@ -66,6 +67,7 @@ public class LoanSettingsController {
 
   public record LoanSettingsDto(
       BigDecimal minAmount,
+      BigDecimal applicationFee,
       BigDecimal savingsMultiplier,
       BigDecimal withinPercent,
       int minMembershipMonths,
@@ -149,6 +151,7 @@ public class LoanSettingsController {
         request.allowConcurrentLoans(),
         request.minGuarantors());
     coop.setDividendRules(request.dividendMethod(), request.dividendRate(), request.dividendFrequency());
+    coop.setLoanApplicationFee(request.applicationFee());
     cooperativeRepository.save(coop);
 
     committeeRepository.deleteAllForCooperative(id);
@@ -182,6 +185,7 @@ public class LoanSettingsController {
             .toList();
     return new LoanSettingsDto(
         coop.getLoanMinAmount(),
+        coop.getLoanApplicationFee(),
         coop.getLoanSavingsMultiplier(),
         coop.getLoanWithinPercent(),
         coop.getLoanMinMembershipMonths(),

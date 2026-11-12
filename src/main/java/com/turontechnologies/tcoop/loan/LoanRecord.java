@@ -139,6 +139,25 @@ public class LoanRecord {
   @Column(name = "disbursed_by_name")
   private String disbursedByName;
 
+  @Column(name = "application_fee_amount")
+  private BigDecimal applicationFeeAmount;
+
+  @Column(name = "application_fee_reference")
+  private String applicationFeeReference;
+
+  public void setApplicationFee(BigDecimal amount, String reference) {
+    this.applicationFeeAmount = amount;
+    this.applicationFeeReference = reference;
+  }
+
+  public BigDecimal getApplicationFeeAmount() {
+    return applicationFeeAmount;
+  }
+
+  public String getApplicationFeeReference() {
+    return applicationFeeReference;
+  }
+
   protected LoanRecord() {
     // JPA
   }

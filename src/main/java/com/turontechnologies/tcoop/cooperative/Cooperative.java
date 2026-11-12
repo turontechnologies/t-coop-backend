@@ -139,6 +139,18 @@ public class Cooperative {
   @Column(name = "dividend_frequency")
   private String dividendFrequency = "Annually";
 
+  /** Paid online before the loan form opens (V49); 0 means no fee. */
+  @Column(name = "loan_application_fee")
+  private BigDecimal loanApplicationFee = BigDecimal.ZERO;
+
+  public BigDecimal getLoanApplicationFee() {
+    return loanApplicationFee == null ? BigDecimal.ZERO : loanApplicationFee;
+  }
+
+  public void setLoanApplicationFee(BigDecimal loanApplicationFee) {
+    this.loanApplicationFee = loanApplicationFee;
+  }
+
   protected Cooperative() {
     // JPA
   }

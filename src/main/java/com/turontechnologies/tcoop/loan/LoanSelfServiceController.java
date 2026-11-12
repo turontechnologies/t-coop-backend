@@ -83,6 +83,7 @@ public class LoanSelfServiceController {
   private final SavingsRecordRepository savingsRecordRepository;
   private final PlatformSettingsRepository platformSettingsRepository;
   private final LoanCommittee loanCommittee;
+  private final LoanApplicationFeeRepository feeRepository;
   private final CoopPermissions coopPermissions;
   private final CoopGatewayResolver gatewayResolver;
   private final PaymentGatewayService paymentGatewayService;
@@ -99,6 +100,7 @@ public class LoanSelfServiceController {
       SavingsRecordRepository savingsRecordRepository,
       PlatformSettingsRepository platformSettingsRepository,
       LoanCommittee loanCommittee,
+      LoanApplicationFeeRepository feeRepository,
       CoopPermissions coopPermissions,
       CoopGatewayResolver gatewayResolver,
       PaymentGatewayService paymentGatewayService,
@@ -113,6 +115,7 @@ public class LoanSelfServiceController {
     this.savingsRecordRepository = savingsRecordRepository;
     this.platformSettingsRepository = platformSettingsRepository;
     this.loanCommittee = loanCommittee;
+    this.feeRepository = feeRepository;
     this.coopPermissions = coopPermissions;
     this.gatewayResolver = gatewayResolver;
     this.paymentGatewayService = paymentGatewayService;
@@ -173,6 +176,19 @@ public class LoanSelfServiceController {
           .body(Map.of("error", "The smallest loan you can apply for is " + naira(coop.getLoanMinAmount())));
     }
 
+    // The application fee is paid before the form opens; a paid one waits here until it's used.
+    LoanApplicationFee feeCredit = null;
+    if (coop.getLoanApplicationFee().signum() > 0) {
+      feeCredit =
+          feeRepository
+              .findFirstByCooperativeIdAndMemberIdAndStatusOrderByPaidAtAsc(id, member.getId(), LoanApplicationFee.PAID)
+              .orElse(null);
+      if (feeCredit == null) {
+        return ResponseEntity.status(402)
+            .body(Map.of("error", "Pay the " + naira(coop.getLoanApplicationFee()) + " application fee before applying for a loan"));
+      }
+    }
+
     // The co-op's eligibility rules (Settings -> Loans).
     BigDecimal totalSavings = savingsRecordRepository.sumByMember(member.getId());
     String ruleProblem = eligibilityProblem(coop, member, totalSavings);
@@ -231,7 +247,12 @@ public class LoanSelfServiceController {
             guarantors.isEmpty() ? AWAITING_APPROVAL : AWAITING_GUARANTOR,
             mode);
     if (guarantors.isEmpty()) record.setApprovalStep(1);
+    if (feeCredit != null) record.setApplicationFee(feeCredit.getAmount(), feeCredit.getReference());
     loanRecordRepository.save(record);
+    if (feeCredit != null) {
+      feeCredit.markUsed(record.getId());
+      feeRepository.save(feeCredit);
+    }
     for (Member guarantor : guarantors) {
       loanGuarantorRepository.save(
           new LoanGuarantor(record.getId(), guarantor.getId(), guarantor.getFullName(), LoanGuarantor.PENDING));
