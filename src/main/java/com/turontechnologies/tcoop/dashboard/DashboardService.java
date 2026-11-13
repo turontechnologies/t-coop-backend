@@ -176,7 +176,8 @@ public class DashboardService {
     return new DashboardSummaryDto(
         cards, chart, recentActivity, List.of(),
         percent(activeCoops.size(), coopCount),
-        "of co-operatives were active in the last 30 days");
+        "of co-operatives were active in the last 30 days",
+        null);
   }
 
   /* ─────────────────────────────── Co-operative ─────────────────────────────── */
@@ -221,7 +222,8 @@ public class DashboardService {
     return new DashboardSummaryDto(
         cards, chart, recentActivity, List.of(),
         percent(active.size(), memberCount),
-        "of members saved or repaid a loan in the last 30 days");
+        "of members saved or repaid a loan in the last 30 days",
+        LoanPipelineDto.of(loans));
   }
 
   /* ─────────────────────────────── Member ─────────────────────────────── */
@@ -291,7 +293,8 @@ public class DashboardService {
     return new DashboardSummaryDto(
         cards, chart, recentActivity, loanEligibilityByType,
         percent(monthsSaved.size(), 6),
-        "of the last 6 months you saved in");
+        "of the last 6 months you saved in",
+        LoanPipelineDto.of(myLoans));
   }
 
   /* ─────────────────────────────── Shared ─────────────────────────────── */

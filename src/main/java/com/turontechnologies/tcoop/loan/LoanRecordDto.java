@@ -54,7 +54,11 @@ public record LoanRecordDto(
     String applicationFeeReference,
     /** Repaid so far and still owed (principal + interest) — see LoanBalances. */
     BigDecimal amountRepaid,
-    BigDecimal outstandingBalance) {
+    BigDecimal outstandingBalance,
+    /** Instalments past their due date and unpaid, what they come to, and the next due date. */
+    int overdueInstallments,
+    BigDecimal overdueAmount,
+    LocalDate nextDueDate) {
 
   public record GuarantorDto(
       String memberId, String name, String status, String documentUrl, LocalDateTime respondedAt) {
@@ -123,6 +127,9 @@ public record LoanRecordDto(
         record.getApplicationFeeAmount(),
         record.getApplicationFeeReference(),
         LoanBalances.repaid(record),
-        LoanBalances.outstanding(record));
+        LoanBalances.outstanding(record),
+        LoanBalances.overdueInstallments(record, LocalDate.now()),
+        LoanBalances.overdueAmount(record, LocalDate.now()),
+        LoanBalances.nextDueDate(record));
   }
 }

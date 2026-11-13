@@ -11,4 +11,6 @@ public record DashboardSummaryDto(
     /** 0-100, see DashboardService for what it measures in each scope. */
     BigDecimal activityRate,
     /** What the rate means, e.g. "of members saved or repaid a loan in the last 30 days". */
-    String activityLabel) {}
+    String activityLabel,
+    /** Loans not yet paid out; null on the platform-wide view. */
+    LoanPipelineDto loanPipeline) {}

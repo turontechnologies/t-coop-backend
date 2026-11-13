@@ -27,6 +27,41 @@ public final class LoanBalances {
     return loan.getTotalRepayment().subtract(repaid(loan)).max(BigDecimal.ZERO);
   }
 
+  /**
+   * How many instalments should have been paid by {@code today}: instalment i falls due i months
+   * after the loan was paid out. Zero for a loan that isn't running.
+   */
+  public static int installmentsDue(LoanRecord loan, java.time.LocalDate today) {
+    if (!"Active".equals(loan.getStatus()) || loan.getDisbursedAt() == null) return 0;
+    java.time.LocalDate start = loan.getDisbursedAt().toLocalDate();
+    int due = 0;
+    for (int i = 1; i <= loan.getNumberOfRepayments(); i++) {
+      if (start.plusMonths(i).isAfter(today)) break;
+      due = i;
+    }
+    return due;
+  }
+
+  /** Instalments past their due date and not yet paid. */
+  public static int overdueInstallments(LoanRecord loan, java.time.LocalDate today) {
+    return Math.max(0, installmentsDue(loan, today) - Math.max(0, loan.getRepaymentsMade()));
+  }
+
+  /** What those overdue instalments come to (never more than what's still owed). */
+  public static BigDecimal overdueAmount(LoanRecord loan, java.time.LocalDate today) {
+    int overdue = overdueInstallments(loan, today);
+    if (overdue == 0) return BigDecimal.ZERO.setScale(2);
+    return loan.getMonthlyRepayment().multiply(BigDecimal.valueOf(overdue)).min(outstanding(loan));
+  }
+
+  /** When the next unpaid instalment falls due; null when nothing is left to pay. */
+  public static java.time.LocalDate nextDueDate(LoanRecord loan) {
+    if (!"Active".equals(loan.getStatus()) || loan.getDisbursedAt() == null) return null;
+    int next = Math.max(0, loan.getRepaymentsMade()) + 1;
+    if (next > loan.getNumberOfRepayments()) return null;
+    return loan.getDisbursedAt().toLocalDate().plusMonths(next);
+  }
+
   /** The principal still owed on a running loan (its share of each instalment that's left). */
   public static BigDecimal principalOwed(LoanRecord loan) {
     if (!"Active".equals(loan.getStatus())) return BigDecimal.ZERO.setScale(2);
