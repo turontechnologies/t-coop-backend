@@ -96,6 +96,30 @@ public class DashboardService {
     this.repaymentRepository = repaymentRepository;
   }
 
+  /** Optional so tests can build the service without it; then statuses stay as stored. */
+  private com.turontechnologies.tcoop.loan.LoanCommittee loanCommittee;
+
+  @org.springframework.beans.factory.annotation.Autowired(required = false)
+  void setLoanCommittee(com.turontechnologies.tcoop.loan.LoanCommittee loanCommittee) {
+    this.loanCommittee = loanCommittee;
+  }
+
+  /** A loan's status as the Loans pages word it: "Awaiting Treasurer", "Awaiting your answer". */
+  private Function<LoanRecord, String> loanStatusLabel(String cooperativeId, boolean borrowerView) {
+    List<com.turontechnologies.tcoop.loan.LoanCommittee.Step> steps =
+        loanCommittee == null ? List.of() : loanCommittee.stepsOf(cooperativeId);
+    return loan -> {
+      if ("Awaiting Approval".equals(loan.getStatus())) {
+        String title = loanCommittee == null ? null : loanCommittee.stepTitle(steps, loan);
+        return title == null ? "Awaiting approval" : "Awaiting " + title;
+      }
+      if ("Awaiting Acceptance".equals(loan.getStatus())) {
+        return borrowerView ? "Awaiting your answer" : "Awaiting borrower";
+      }
+      return loan.getStatus();
+    };
+  }
+
   public DashboardSummaryDto getSummary(Member caller) {
     if ("super_admin".equals(caller.getRole())) return platformWideSummary();
     String coopId = caller.getCooperativeId();
@@ -137,7 +161,7 @@ public class DashboardService {
             recentLoans.stream().limit(RECENT_ACTIVITY_LIMIT).toList(),
             s -> cooperativeNames.getOrDefault(s.getCooperativeId(), s.getCooperativeId()),
             l -> cooperativeNames.getOrDefault(l.getCooperativeId(), l.getCooperativeId()),
-            false);
+            null);
 
     LocalDateTime since = LocalDateTime.now().minusDays(CHART_DAYS);
     Set<String> activeCoops = new HashSet<>();
@@ -181,7 +205,7 @@ public class DashboardService {
             loans.stream().limit(RECENT_ACTIVITY_LIMIT).toList(),
             savingsTypeName(cooperativeId),
             loanTypeName(cooperativeId),
-            true);
+            loanStatusLabel(cooperativeId, false));
 
     // Members who saved or repaid in the last 30 days, out of everyone on the roster.
     LocalDateTime since = LocalDateTime.now().minusDays(CHART_DAYS);
@@ -248,7 +272,7 @@ public class DashboardService {
             myLoans.stream().limit(RECENT_ACTIVITY_LIMIT).toList(),
             savingsTypeName(cooperativeId),
             loanTypeName(cooperativeId),
-            true);
+            loanStatusLabel(cooperativeId, true));
 
     // The share of the last 6 months in which the member saved.
     Set<String> monthsSaved = new HashSet<>();
@@ -369,7 +393,9 @@ public class DashboardService {
       List<LoanRecord> loans,
       Function<SavingsRecord, String> savingsSubtitle,
       Function<LoanRecord, String> loanSubtitle,
-      boolean showStatus) {
+      /** How to word a loan's status; null hides statuses (the platform-wide view). */
+      Function<LoanRecord, String> loanStatus) {
+    boolean showStatus = loanStatus != null;
     List<RecentActivityDto> combined = new ArrayList<>();
     for (SavingsRecord record : savings) {
       combined.add(
@@ -389,7 +415,7 @@ public class DashboardService {
               loanSubtitle.apply(record),
               record.getAmount(),
               when.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT),
-              showStatus ? record.getStatus() : null));
+              showStatus ? loanStatus.apply(record) : null));
     }
     return combined.stream()
         .sorted(Comparator.comparing(RecentActivityDto::date).reversed())
