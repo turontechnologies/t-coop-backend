@@ -5,7 +5,14 @@ import java.time.LocalDateTime;
 /** One row of a member's guarantor list, with real accept/decline status — GET
  * /api/v1/cooperatives/{id}/members/{memberId}/guarantors (CooperativeController). */
 public record MemberGuarantorDto(
-    String id, String name, String email, String phone, String status, LocalDateTime respondedAt) {
+    String id,
+    String name,
+    String email,
+    String phone,
+    String status,
+    LocalDateTime respondedAt,
+    /** The co-op member standing as guarantor; null for someone outside the co-op. */
+    String guarantorMemberId) {
 
   public static MemberGuarantorDto from(MemberGuarantor guarantor) {
     return new MemberGuarantorDto(
@@ -14,6 +21,7 @@ public record MemberGuarantorDto(
         guarantor.getEmail(),
         guarantor.getPhone(),
         guarantor.getStatus(),
-        guarantor.getRespondedAt());
+        guarantor.getRespondedAt(),
+        guarantor.getGuarantorMemberId());
   }
 }

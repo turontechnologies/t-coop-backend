@@ -61,6 +61,12 @@ public class CooperativeController {
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
   private final MemberGuarantorRepository memberGuarantorRepository;
+  private MemberGuarantorRules guarantorRules;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  void setGuarantorRules(MemberGuarantorRules guarantorRules) {
+    this.guarantorRules = guarantorRules;
+  }
   private final SavingsRecordRepository savingsRecordRepository;
   private final SavingsTypeRepository savingsTypeRepository;
   private final LoanRecordRepository loanRecordRepository;
@@ -312,10 +318,9 @@ public class CooperativeController {
       return ResponseEntity.status(409)
           .body(Map.of("error", "That email address is already in use by another account"));
     }
-    if (coop.isRequireMemberGuarantors() && (request.guarantor() == null || request.guarantor().isBlank())) {
-      return ResponseEntity.badRequest()
-          .body(Map.of("error", "This co-operative requires a guarantor for every new member"));
-    }
+    MemberGuarantorRules.Result guarantors =
+        guarantorRules.check(coop, request.guarantors(), request.guarantor(), null);
+    if (guarantors.error() != null) return guarantorError(guarantors.error());
     var altIdError = alternativeIdConflict(id, request.alternativeId(), null);
     if (altIdError != null) return altIdError;
 
@@ -343,7 +348,7 @@ public class CooperativeController {
         request.city(),
         request.facebook(),
         request.twitter(),
-        request.guarantor() == null || request.guarantor().isBlank() ? null : request.guarantor().trim(),
+        guarantors.summary(),
         request.nextOfKinName(),
         request.nextOfKinPhone(),
         request.nextOfKinEmail(),
@@ -354,6 +359,7 @@ public class CooperativeController {
         request.accountName());
     member.setAlternativeId(request.alternativeId());
     memberRepository.save(member);
+    if (guarantors.rows() != null) guarantorRules.save(member, coop, guarantors.rows());
 
     try {
       emailService.sendMemberWelcomeEmail(
@@ -414,9 +420,14 @@ public class CooperativeController {
     if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
-    if (coop.isRequireMemberGuarantors() && (request.guarantor() == null || request.guarantor().isBlank())) {
-      return ResponseEntity.badRequest()
-          .body(Map.of("error", "This co-operative requires a guarantor for every member"));
+    MemberGuarantorRules.Result guarantors;
+    if (request.guarantors() == null) {
+      // The list wasn't sent: keep the guarantors on file (older clients send just the name).
+      String kept = request.guarantor() == null ? member.getGuarantor() : request.guarantor();
+      guarantors = new MemberGuarantorRules.Result(null, kept == null || kept.isBlank() ? null : kept.trim(), null);
+    } else {
+      guarantors = guarantorRules.check(coop, request.guarantors(), null, member.getId());
+      if (guarantors.error() != null) return guarantorError(guarantors.error());
     }
     var altIdError = alternativeIdConflict(id, request.alternativeId(), member.getId());
     if (altIdError != null) return altIdError;
@@ -435,7 +446,7 @@ public class CooperativeController {
         request.city(),
         member.getFacebook(),
         member.getTwitter(),
-        request.guarantor(),
+        guarantors.summary(),
         member.getNextOfKinName(),
         member.getNextOfKinPhone(),
         member.getNextOfKinEmail(),
@@ -447,6 +458,7 @@ public class CooperativeController {
     member.setRole("Admin".equals(request.role()) ? "admin" : "member");
     member.setAlternativeId(request.alternativeId());
     memberRepository.save(member);
+    if (guarantors.rows() != null) guarantorRules.save(member, coop, guarantors.rows());
 
     auditLogService.log(
         adminIdOf(authentication),
@@ -761,8 +773,29 @@ public class CooperativeController {
           request.memberIdPadding(),
           request.memberIdType() != null ? request.memberIdType() : coop.getMemberIdType());
     }
+    if (request.memberGuarantorSource() != null) {
+      String source = request.memberGuarantorSource();
+      int min = request.minGuarantors() != null ? request.minGuarantors() : coop.getMinGuarantors();
+      int fromCoop = request.memberGuarantorsFromCoop() == null ? 0 : request.memberGuarantorsFromCoop();
+      int fromOutside = request.memberGuarantorsFromOutside() == null ? 0 : request.memberGuarantorsFromOutside();
+      if ("Mix".equals(source) && fromCoop + fromOutside == 0) {
+        return ResponseEntity.badRequest()
+            .body(Map.of("error", "Set how many guarantors come from the co-operative and from outside, or choose \"Anyone\""));
+      }
+      if ("Mix".equals(source) && fromCoop + fromOutside > min) {
+        return ResponseEntity.badRequest()
+            .body(Map.of(
+                "error",
+                fromCoop + " from the co-operative plus " + fromOutside + " from outside is more than the minimum of "
+                    + min + " guarantor" + (min == 1 ? "" : "s") + ". Raise the minimum or lower one of the numbers."));
+      }
+      coop.setMemberGuarantorRules(source, fromCoop, fromOutside);
+    }
     if (request.minGuarantors() != null) {
       coop.setMinGuarantors(request.minGuarantors());
+    }
+    if (request.alternativeIdLabel() != null) {
+      coop.setAlternativeIdLabel(request.alternativeIdLabel());
     }
     if (request.requireMemberGuarantors() != null) {
       coop.setRequireMemberGuarantors(request.requireMemberGuarantors());
@@ -1156,6 +1189,9 @@ public class CooperativeController {
         coop.getMemberIdType(),
         coop.getMinGuarantors(),
         coop.isRequireMemberGuarantors(),
+        coop.getMemberGuarantorSource(),
+        coop.getMemberGuarantorsFromCoop(),
+        coop.getMemberGuarantorsFromOutside(),
         memberCount,
         savingsTypeCount,
         loanTypeCount,
@@ -1164,7 +1200,13 @@ public class CooperativeController {
         coop.getSavingsChargeAmount(),
         coop.getSavingsChargeType(),
         coop.getLoansChargeAmount(),
-        coop.getLoansChargeType());
+        coop.getLoansChargeType(),
+        coop.getAlternativeIdLabel());
+  }
+
+  /** A guarantor problem, tagged so the form can show it under the guarantors section. */
+  private static ResponseEntity<?> guarantorError(String message) {
+    return ResponseEntity.badRequest().body(Map.of("error", message, "field", "guarantors"));
   }
 
   /** A typed-in alternative ID has to be unique within the co-op (admin included). */

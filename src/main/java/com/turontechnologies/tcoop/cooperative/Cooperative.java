@@ -104,6 +104,18 @@ public class Cooperative {
   @Column(name = "min_guarantors")
   private int minGuarantors;
 
+  /** Where new-member guarantors may come from (V52): Any, CoopOnly or Mix. */
+  @Column(name = "member_guarantor_source")
+  private String memberGuarantorSource = "Any";
+
+  /** With Mix: at least this many guarantors must be members of the co-op. */
+  @Column(name = "member_guarantors_from_coop")
+  private int memberGuarantorsFromCoop;
+
+  /** With Mix: at least this many guarantors must be from outside the co-op. */
+  @Column(name = "member_guarantors_from_outside")
+  private int memberGuarantorsFromOutside;
+
   // Loan rules (V48), set by the co-op's admin in Settings -> Loans.
   @Column(name = "loan_min_amount")
   private BigDecimal loanMinAmount = BigDecimal.ZERO;
@@ -142,6 +154,35 @@ public class Cooperative {
   /** Paid online before the loan form opens (V49); 0 means no fee. */
   @Column(name = "loan_application_fee")
   private BigDecimal loanApplicationFee = BigDecimal.ZERO;
+
+  /** "General" (one fee for every loan) or "PerType" (each loan type's own fee) — V50. */
+  @Column(name = "loan_fee_mode")
+  private String loanFeeMode = "General";
+
+  /** What this co-op calls the alternative ID (V51); null = "Alternative ID". */
+  @Column(name = "alternative_id_label")
+  private String alternativeIdLabel;
+
+  public String getAlternativeIdLabel() {
+    return alternativeIdLabel == null || alternativeIdLabel.isBlank() ? "Alternative ID" : alternativeIdLabel;
+  }
+
+  public void setAlternativeIdLabel(String alternativeIdLabel) {
+    this.alternativeIdLabel =
+        alternativeIdLabel == null || alternativeIdLabel.isBlank() ? null : alternativeIdLabel.trim();
+  }
+
+  public String getLoanFeeMode() {
+    return loanFeeMode == null ? "General" : loanFeeMode;
+  }
+
+  public void setLoanFeeMode(String loanFeeMode) {
+    this.loanFeeMode = loanFeeMode;
+  }
+
+  public boolean isLoanFeePerType() {
+    return "PerType".equals(getLoanFeeMode());
+  }
 
   public BigDecimal getLoanApplicationFee() {
     return loanApplicationFee == null ? BigDecimal.ZERO : loanApplicationFee;
@@ -452,5 +493,23 @@ public class Cooperative {
 
   public void setMinGuarantors(int minGuarantors) {
     this.minGuarantors = minGuarantors;
+  }
+
+  public String getMemberGuarantorSource() {
+    return memberGuarantorSource == null ? "Any" : memberGuarantorSource;
+  }
+
+  public int getMemberGuarantorsFromCoop() {
+    return memberGuarantorsFromCoop;
+  }
+
+  public int getMemberGuarantorsFromOutside() {
+    return memberGuarantorsFromOutside;
+  }
+
+  public void setMemberGuarantorRules(String source, int fromCoop, int fromOutside) {
+    this.memberGuarantorSource = source;
+    this.memberGuarantorsFromCoop = "Mix".equals(source) ? fromCoop : 0;
+    this.memberGuarantorsFromOutside = "Mix".equals(source) ? fromOutside : 0;
   }
 }

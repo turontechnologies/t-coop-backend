@@ -84,6 +84,7 @@ public class LoanSelfServiceController {
   private final PlatformSettingsRepository platformSettingsRepository;
   private final LoanCommittee loanCommittee;
   private final LoanApplicationFeeRepository feeRepository;
+  private final LoanFeeRules feeRules;
   private final LoanEligibilityService eligibilityService;
   private final CoopPermissions coopPermissions;
   private final CoopGatewayResolver gatewayResolver;
@@ -102,6 +103,7 @@ public class LoanSelfServiceController {
       PlatformSettingsRepository platformSettingsRepository,
       LoanCommittee loanCommittee,
       LoanApplicationFeeRepository feeRepository,
+      LoanFeeRules feeRules,
       LoanEligibilityService eligibilityService,
       CoopPermissions coopPermissions,
       CoopGatewayResolver gatewayResolver,
@@ -118,6 +120,7 @@ public class LoanSelfServiceController {
     this.platformSettingsRepository = platformSettingsRepository;
     this.loanCommittee = loanCommittee;
     this.feeRepository = feeRepository;
+    this.feeRules = feeRules;
     this.eligibilityService = eligibilityService;
     this.coopPermissions = coopPermissions;
     this.gatewayResolver = gatewayResolver;
@@ -180,15 +183,19 @@ public class LoanSelfServiceController {
     }
 
     // The application fee is paid before the form opens; a paid one waits here until it's used.
+    // One fee for every loan, or this type's own fee; a fee paid for another type doesn't count.
     LoanApplicationFee feeCredit = null;
-    if (coop.getLoanApplicationFee().signum() > 0) {
-      feeCredit =
-          feeRepository
-              .findFirstByCooperativeIdAndMemberIdAndStatusOrderByPaidAtAsc(id, member.getId(), LoanApplicationFee.PAID)
-              .orElse(null);
+    BigDecimal fee = LoanFeeRules.feeFor(coop, type);
+    if (fee.signum() > 0) {
+      feeCredit = feeRules.creditFor(coop, member.getId(), type.getId());
       if (feeCredit == null) {
         return ResponseEntity.status(402)
-            .body(Map.of("error", "Pay the " + naira(coop.getLoanApplicationFee()) + " application fee before applying for a loan"));
+            .body(
+                Map.of(
+                    "error",
+                    "Pay the " + naira(fee) + " application fee"
+                        + (coop.isLoanFeePerType() ? " for " + type.getName() : "")
+                        + " before applying for a loan"));
       }
     }
 
@@ -543,6 +550,13 @@ public class LoanSelfServiceController {
       record.setStatus(AWAITING_ACCEPTANCE);
       record.setApprovalStep(null);
       loanRecordRepository.save(record);
+      BigDecimal netToBorrower = amount.subtract(loansChargeFor(coop, platformSettings(), amount));
+      notifyGuarantors(
+          record,
+          "A loan you guaranteed was approved",
+          applicantName + "'s " + typeName + " loan was approved for " + naira(amount) + " over " + months
+              + " month" + (months == 1 ? "" : "s") + ". " + naira(netToBorrower)
+              + " will be paid out once they accept it.");
       if (applicant != null) {
         notificationService.notify(
             applicant.getId(),
@@ -802,6 +816,12 @@ public class LoanSelfServiceController {
           new SavingsRecord(id, record.getMemberId(), null, record.getAmount().negate(), balanceAfter,
               "Loan Disbursement", reference, "Success", null));
     }
+    notifyGuarantors(
+        record,
+        "A loan you guaranteed was paid out",
+        applicantName + "'s " + typeName + " loan was paid out: " + naira(net)
+            + ("Cheque".equals(request.method()) ? " by cheque" : "") + ". It's repaid over "
+            + record.getDurationMonths() + " month" + (record.getDurationMonths() == 1 ? "" : "s") + ".");
     if (applicant != null) {
       notificationService.notify(
           applicant.getId(),
@@ -917,6 +937,14 @@ public class LoanSelfServiceController {
   }
 
   /* ─────────────────────────────── Helpers ─────────────────────────────── */
+
+  /** Guarantors stand behind the loan, so they hear about the approved terms and the payout. */
+  private void notifyGuarantors(LoanRecord record, String title, String body) {
+    for (LoanGuarantor guarantor : guarantorsOf(record)) {
+      notificationService.notify(
+          guarantor.getMemberId(), "LOAN_DECISION", title, body, "/loans/request/" + record.getId());
+    }
+  }
 
   private LoanRecordDto dtoOf(LoanRecord record) {
     Member applicant = memberRepository.findById(record.getMemberId()).orElse(null);

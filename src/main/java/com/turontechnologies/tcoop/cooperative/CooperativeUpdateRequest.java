@@ -45,4 +45,14 @@ public record CooperativeUpdateRequest(
     @Min(value = 1, message = "Enter at least 1 guarantor") @Max(value = 10, message = "Enter at most 10 guarantors")
         Integer minGuarantors,
     /** Settings → Co-operative: require a guarantor when adding a member. */
-    Boolean requireMemberGuarantors) {}
+    Boolean requireMemberGuarantors,
+    /** Where new-member guarantors come from: Any, CoopOnly or Mix. */
+    @Pattern(regexp = "Any|CoopOnly|Mix", message = "Choose where guarantors can come from")
+        String memberGuarantorSource,
+    @Min(value = 0, message = "Enter 0 or more") @Max(value = 10, message = "Enter at most 10")
+        Integer memberGuarantorsFromCoop,
+    @Min(value = 0, message = "Enter 0 or more") @Max(value = 10, message = "Enter at most 10")
+        Integer memberGuarantorsFromOutside,
+    /** What the co-op calls the alternative ID; "" resets it to "Alternative ID". */
+    @jakarta.validation.constraints.Size(max = 40, message = "Keep the name under 40 characters")
+        String alternativeIdLabel) {}

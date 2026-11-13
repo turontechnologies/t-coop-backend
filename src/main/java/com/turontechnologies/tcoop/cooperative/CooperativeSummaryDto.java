@@ -26,6 +26,9 @@ public record CooperativeSummaryDto(
     String memberIdType,
     int minGuarantors,
     boolean requireMemberGuarantors,
+    String memberGuarantorSource,
+    int memberGuarantorsFromCoop,
+    int memberGuarantorsFromOutside,
     long memberCount,
     long savingsTypeCount,
     long loanTypeCount,
@@ -34,4 +37,6 @@ public record CooperativeSummaryDto(
     BigDecimal savingsChargeAmount,
     String savingsChargeType,
     BigDecimal loansChargeAmount,
-    String loansChargeType) {}
+    String loansChargeType,
+    /** What the co-op calls the alternative ID. */
+    String alternativeIdLabel) {}

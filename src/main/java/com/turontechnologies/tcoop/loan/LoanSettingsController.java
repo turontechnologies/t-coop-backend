@@ -43,9 +43,20 @@ public class LoanSettingsController {
       @NotBlank(message = "Pick a member") String memberId,
       @NotBlank(message = "Give each approver a title") @Size(max = 60) String title) {}
 
+  /** One loan type's application fee, when fees are set per type. */
+  public record TypeFeeInput(
+      @NotBlank String loanTypeId,
+      @NotNull @DecimalMin(value = "0", message = "A fee can't be negative") BigDecimal fee) {}
+
+  public record TypeFeeDto(String loanTypeId, String loanTypeName, BigDecimal fee, String status) {}
+
   public record LoanSettingsRequest(
       @NotNull @DecimalMin(value = "0", message = "The minimum loan can't be negative") BigDecimal minAmount,
       @NotNull @DecimalMin(value = "0", message = "The application fee can't be negative") BigDecimal applicationFee,
+      /** "General" (one fee for every loan) or "PerType"; null keeps the current mode. */
+      @Pattern(regexp = "General|PerType", message = "Choose one fee or a fee per loan type") String feeMode,
+      /** Each loan type's fee, used when feeMode is "PerType"; null leaves them as they are. */
+      List<@Valid TypeFeeInput> typeFees,
       @NotNull
           @DecimalMin(value = "0.1", message = "The savings multiple must be at least 0.1")
           @DecimalMax(value = "20", message = "The savings multiple can't be more than 20")
@@ -68,6 +79,8 @@ public class LoanSettingsController {
   public record LoanSettingsDto(
       BigDecimal minAmount,
       BigDecimal applicationFee,
+      String feeMode,
+      List<TypeFeeDto> typeFees,
       BigDecimal savingsMultiplier,
       BigDecimal withinPercent,
       int minMembershipMonths,
@@ -85,6 +98,7 @@ public class LoanSettingsController {
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;
   private final LoanCommitteeMemberRepository committeeRepository;
+  private final LoanTypeRepository loanTypeRepository;
   private final CoopPermissions coopPermissions;
   private final AuditLogService auditLogService;
 
@@ -92,11 +106,13 @@ public class LoanSettingsController {
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       LoanCommitteeMemberRepository committeeRepository,
+      LoanTypeRepository loanTypeRepository,
       CoopPermissions coopPermissions,
       AuditLogService auditLogService) {
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.committeeRepository = committeeRepository;
+    this.loanTypeRepository = loanTypeRepository;
     this.coopPermissions = coopPermissions;
     this.auditLogService = auditLogService;
   }
@@ -152,6 +168,22 @@ public class LoanSettingsController {
         request.minGuarantors());
     coop.setDividendRules(request.dividendMethod(), request.dividendRate(), request.dividendFrequency());
     coop.setLoanApplicationFee(request.applicationFee());
+    if (request.feeMode() != null) coop.setLoanFeeMode(request.feeMode());
+    if (request.typeFees() != null) {
+      for (TypeFeeInput input : request.typeFees()) {
+        LoanType type;
+        try {
+          type = loanTypeRepository.findById(java.util.UUID.fromString(input.loanTypeId())).orElse(null);
+        } catch (IllegalArgumentException e) {
+          type = null;
+        }
+        if (type == null || !id.equals(type.getCooperativeId())) {
+          return ResponseEntity.badRequest().body(Map.of("error", "That loan type isn't in this co-operative"));
+        }
+        type.setApplicationFee(input.fee());
+        loanTypeRepository.save(type);
+      }
+    }
     cooperativeRepository.save(coop);
 
     committeeRepository.deleteAllForCooperative(id);
@@ -183,9 +215,15 @@ public class LoanSettingsController {
         seats.stream()
             .map(s -> new CommitteeSeatDto(s.getPosition(), s.getMemberId(), names.getOrDefault(s.getMemberId(), s.getMemberId()), s.getTitle()))
             .toList();
+    List<TypeFeeDto> typeFees =
+        loanTypeRepository.findAllByCooperativeId(coop.getId()).stream()
+            .map(t -> new TypeFeeDto(t.getId().toString(), t.getName(), t.getApplicationFee(), t.getStatus()))
+            .toList();
     return new LoanSettingsDto(
         coop.getLoanMinAmount(),
         coop.getLoanApplicationFee(),
+        coop.getLoanFeeMode(),
+        typeFees,
         coop.getLoanSavingsMultiplier(),
         coop.getLoanWithinPercent(),
         coop.getLoanMinMembershipMonths(),

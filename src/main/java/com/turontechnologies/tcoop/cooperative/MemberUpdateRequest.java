@@ -1,6 +1,8 @@
 package com.turontechnologies.tcoop.cooperative;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -17,6 +19,8 @@ public record MemberUpdateRequest(
         String role,
     /** Optional unless the co-op requires a guarantor for members (see MemberCreateRequest). */
     String guarantor,
+    /** The full guarantor list; null leaves the member's guarantors as they are. */
+    List<@Valid MemberGuarantorInput> guarantors,
     @NotBlank(message = "Select a country") String country,
     @NotBlank(message = "Select a state") String state,
     @NotBlank(message = "Select a city") String city,

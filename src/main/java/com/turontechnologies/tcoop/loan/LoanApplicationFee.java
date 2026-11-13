@@ -49,6 +49,18 @@ public class LoanApplicationFee {
   @Column(name = "used_at")
   private LocalDateTime usedAt;
 
+  /** The loan type this fee was paid for, when fees are set per type; null for a general fee. */
+  @Column(name = "loan_type_id")
+  private UUID loanTypeId;
+
+  public UUID getLoanTypeId() {
+    return loanTypeId;
+  }
+
+  public void setLoanTypeId(UUID loanTypeId) {
+    this.loanTypeId = loanTypeId;
+  }
+
   protected LoanApplicationFee() {
     // JPA
   }

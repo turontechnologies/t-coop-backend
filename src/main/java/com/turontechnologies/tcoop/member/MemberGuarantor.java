@@ -23,6 +23,10 @@ public class MemberGuarantor {
   @Column(name = "cooperative_id")
   private String cooperativeId;
 
+  /** Set when the guarantor is a member of this co-op (V52); null for an outsider. */
+  @Column(name = "guarantor_member_id")
+  private String guarantorMemberId;
+
   private String name;
   private String email;
   private String phone;
@@ -53,6 +57,19 @@ public class MemberGuarantor {
     this.phone = phone;
     this.status = "Pending";
     this.createdAt = LocalDateTime.now();
+  }
+
+  /** A guarantor the admin recorded on Add/Edit Member — no email invite, status "Named". */
+  public static MemberGuarantor named(
+      String memberId, String cooperativeId, String guarantorMemberId, String name, String email, String phone) {
+    MemberGuarantor guarantor = new MemberGuarantor(memberId, cooperativeId, name, email, phone);
+    guarantor.guarantorMemberId = guarantorMemberId;
+    guarantor.status = "Named";
+    return guarantor;
+  }
+
+  public String getGuarantorMemberId() {
+    return guarantorMemberId;
   }
 
   public UUID getId() {

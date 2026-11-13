@@ -47,6 +47,18 @@ public class LoanType {
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
+  /** This type's application fee when the co-op sets fees per loan type (V50); null = no fee. */
+  @Column(name = "application_fee")
+  private BigDecimal applicationFee;
+
+  public BigDecimal getApplicationFee() {
+    return applicationFee == null ? BigDecimal.ZERO : applicationFee;
+  }
+
+  public void setApplicationFee(BigDecimal applicationFee) {
+    this.applicationFee = applicationFee;
+  }
+
   protected LoanType() {
     // JPA
   }

@@ -1,6 +1,8 @@
 package com.turontechnologies.tcoop.cooperative;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -32,7 +34,10 @@ public record MemberCreateRequest(
     String bankCode,
     String accountNumber,
     String accountName,
+    /** Legacy single name; ignored when {@code guarantors} is sent. */
     String guarantor,
+    /** Each guarantor: a co-op member (memberId) or an outsider (name + phone, email optional). */
+    List<@Valid MemberGuarantorInput> guarantors,
     @Size(max = 50, message = "Keep the alternative ID under 50 characters") String alternativeId,
     @NotBlank(message = "Select a role")
         @Pattern(regexp = "Admin|Member", message = "Select a valid role")
