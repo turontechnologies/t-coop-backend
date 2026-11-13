@@ -44,6 +44,15 @@ public class LoanRepayment {
   @Column(name = "created_at")
   private LocalDateTime createdAt;
 
+  /** Proof for a repayment recorded by hand (V54). */
+  @Column(name = "receipt_url")
+  private String receiptUrl;
+
+  @Column(name = "recorded_by_name")
+  private String recordedByName;
+
+  private String note;
+
   protected LoanRepayment() {
     // JPA
   }
@@ -67,6 +76,25 @@ public class LoanRepayment {
     this.repaymentDate = LocalDate.now();
     this.status = "Success";
     this.createdAt = LocalDateTime.now();
+  }
+
+  /** A repayment recorded by hand keeps its receipt, who recorded it and any note. */
+  void setManualProof(String receiptUrl, String recordedByName, String note) {
+    this.receiptUrl = receiptUrl;
+    this.recordedByName = recordedByName;
+    this.note = note == null || note.isBlank() ? null : note.trim();
+  }
+
+  public String getReceiptUrl() {
+    return receiptUrl;
+  }
+
+  public String getRecordedByName() {
+    return recordedByName;
+  }
+
+  public String getNote() {
+    return note;
   }
 
   /** For a repayment brought in by a loan import — dated when it was actually paid. */

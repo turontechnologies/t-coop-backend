@@ -169,17 +169,32 @@ public class LoanRepaymentController {
     return ResponseEntity.ok(toResult(repayment, access.loan()));
   }
 
+  /** The receipt (required) and an optional note for a repayment recorded by hand. */
+  public record ManualRepaymentRequest(
+      String receiptUrl,
+      @jakarta.validation.constraints.Size(max = 500, message = "Keep the note under 500 characters") String note) {}
+
   /** Admin/coop-staff's manual entry after receiving payment offline — no Paystack, and (like the
    * self-service side) no client-supplied amount; it's always the loan's own next fixed
-   * installment. */
+   * installment. The receipt for the payment has to be uploaded with it. */
   @PostMapping("/api/v1/cooperatives/{id}/loans/{loanId}/repayments/manual")
   public ResponseEntity<?> manual(
       Authentication authentication,
       @PathVariable String id,
       @PathVariable String loanId,
+      @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody(required = false)
+          ManualRepaymentRequest request,
       HttpServletRequest httpRequest) {
     var access = requireCoopAccess(authentication, id);
     if (access.error() != null) return access.error();
+    String receiptUrl = request == null || request.receiptUrl() == null ? "" : request.receiptUrl().trim();
+    if (receiptUrl.isEmpty()) {
+      return ResponseEntity.badRequest()
+          .body(Map.of("error", "Upload the receipt for this payment before recording it."));
+    }
+    if (!receiptUrl.startsWith("https://") && !receiptUrl.startsWith("http://")) {
+      return ResponseEntity.badRequest().body(Map.of("error", "That receipt upload didn't work. Please upload it again."));
+    }
 
     LoanRecord loan = findLoan(loanId);
     if (loan == null || !id.equals(loan.getCooperativeId())) {
@@ -193,6 +208,8 @@ public class LoanRepaymentController {
         recordRepayment(
             loan, id, loan.getMemberId(), dueCheck.installmentNumber(), dueCheck.amount(),
             "Manual Upload", transactionId);
+    repayment.setManualProof(receiptUrl, access.caller().getFullName(), request.note());
+    loanRepaymentRepository.save(repayment);
 
     auditLogService.log(
         access.caller().getId(), access.caller().getRole(), "Loans", "Update", "Repayment", "Success", httpRequest);

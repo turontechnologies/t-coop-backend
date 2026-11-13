@@ -11,7 +11,11 @@ public record LoanRepaymentDto(
     String method,
     String transactionId,
     LocalDate date,
-    String status) {
+    String status,
+    /** The receipt uploaded when the repayment was recorded by hand. */
+    String receiptUrl,
+    String recordedByName,
+    String note) {
 
   public static LoanRepaymentDto from(LoanRepayment repayment) {
     return new LoanRepaymentDto(
@@ -22,6 +26,9 @@ public record LoanRepaymentDto(
         repayment.getMethod(),
         repayment.getTransactionId(),
         repayment.getRepaymentDate(),
-        repayment.getStatus());
+        repayment.getStatus(),
+        repayment.getReceiptUrl(),
+        repayment.getRecordedByName(),
+        repayment.getNote());
   }
 }
