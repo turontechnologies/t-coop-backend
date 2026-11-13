@@ -32,8 +32,8 @@ public final class LoanBalances {
    * after the loan was paid out. Zero for a loan that isn't running.
    */
   public static int installmentsDue(LoanRecord loan, java.time.LocalDate today) {
-    if (!"Active".equals(loan.getStatus()) || loan.getDisbursedAt() == null) return 0;
-    java.time.LocalDate start = loan.getDisbursedAt().toLocalDate();
+    java.time.LocalDate start = startOf(loan);
+    if (!"Active".equals(loan.getStatus()) || start == null) return 0;
     int due = 0;
     for (int i = 1; i <= loan.getNumberOfRepayments(); i++) {
       if (start.plusMonths(i).isAfter(today)) break;
@@ -56,10 +56,16 @@ public final class LoanBalances {
 
   /** When the next unpaid instalment falls due; null when nothing is left to pay. */
   public static java.time.LocalDate nextDueDate(LoanRecord loan) {
-    if (!"Active".equals(loan.getStatus()) || loan.getDisbursedAt() == null) return null;
+    java.time.LocalDate start = startOf(loan);
+    if (!"Active".equals(loan.getStatus()) || start == null) return null;
     int next = Math.max(0, loan.getRepaymentsMade()) + 1;
     if (next > loan.getNumberOfRepayments()) return null;
-    return loan.getDisbursedAt().toLocalDate().plusMonths(next);
+    return start.plusMonths(next);
+  }
+
+  /** Repayments run from the payout date (older loans without one: the loan date). */
+  private static java.time.LocalDate startOf(LoanRecord loan) {
+    return loan.getDisbursedAt() != null ? loan.getDisbursedAt().toLocalDate() : loan.getLoanDate();
   }
 
   /** The principal still owed on a running loan (its share of each instalment that's left). */
