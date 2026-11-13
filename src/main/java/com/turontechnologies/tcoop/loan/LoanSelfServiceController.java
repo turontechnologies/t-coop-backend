@@ -167,7 +167,7 @@ public class LoanSelfServiceController {
 
     String mode = notBlank(request.loanMode()) ? request.loanMode() : LoanEligibility.TIMES_TWO;
     if (!LoanEligibility.isValidMode(mode)) {
-      return ResponseEntity.badRequest().body(Map.of("error", "Choose \"Times two\" or \"Within\""));
+      return ResponseEntity.badRequest().body(Map.of("error", "Choose how you're borrowing: a multiple of your savings, or Within"));
     }
     boolean within = LoanEligibility.WITHIN.equals(mode);
 
