@@ -1128,7 +1128,11 @@ public class CooperativeController {
     long savingsTypeCount = savingsTypeRepository.countByCooperativeId(coop.getId());
     long loanTypeCount = loanTypeRepository.countByCooperativeId(coop.getId());
     var totalSavings = savingsRecordRepository.sumByCooperative(coop.getId());
-    var totalLoans = loanRecordRepository.sumByCooperative(coop.getId());
+    // Still owed on running loans — the same "Total Loans" the dashboard shows.
+    var totalLoans =
+        loanRecordRepository.findAllByCooperativeIdOrderByCreatedAtDesc(coop.getId()).stream()
+            .map(com.turontechnologies.tcoop.loan.LoanBalances::outstanding)
+            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
     return new CooperativeSummaryDto(
         coop.getId(),
         coop.getName(),
