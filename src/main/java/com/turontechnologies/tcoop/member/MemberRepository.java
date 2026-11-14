@@ -9,6 +9,13 @@ public interface MemberRepository extends JpaRepository<Member, String> {
 
   Optional<Member> findByEmail(String email);
 
+  /**
+   * Login lookup by id in any letter case ("COOP-0002" finds "coop-0002"). Unlike findById, a
+   * query builds the entity from the stored row, so getId() is the real id rather than whatever
+   * the person typed — everything after login compares ids exactly.
+   */
+  Optional<Member> findFirstByIdIgnoreCase(String id);
+
   Optional<Member> findByCooperativeIdAndAlternativeId(String cooperativeId, String alternativeId);
 
   /** Every member with this alternative ID — it's unique per co-op, so there can be one per co-op. */

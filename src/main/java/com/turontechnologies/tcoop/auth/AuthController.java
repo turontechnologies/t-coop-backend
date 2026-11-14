@@ -96,7 +96,10 @@ public class AuthController {
     String identifier = request.membershipId().trim();
     var member =
         memberRepository
-            .findById(identifier)
+            // Not findById: with a case-insensitive database it finds "coop-0002" for "COOP-0002"
+            // but keeps the typed casing as the id, which then goes into the token and fails every
+            // exact id comparison (e.g. "is this the co-op's own admin") with a 403.
+            .findFirstByIdIgnoreCase(identifier)
             .or(() -> memberRepository.findByEmail(identifier))
             .orElse(null);
 
