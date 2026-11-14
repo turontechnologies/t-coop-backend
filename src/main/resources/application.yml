@@ -52,7 +52,7 @@ server:
 # Vercel-deployed frontend). See config.CorsConfig.
 app:
   cors:
-    allowed-origins: ${FRONTEND_ORIGINS:http://localhost:3000}
+    allowed-origins: ${FRONTEND_ORIGINS:http://localhost:3000,http://localhost:8082}
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
   cloudinary:
     cloud-name: ${CLOUDINARY_CLOUD_NAME:}

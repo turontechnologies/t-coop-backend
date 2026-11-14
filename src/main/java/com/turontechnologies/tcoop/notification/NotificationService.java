@@ -41,10 +41,13 @@ public class NotificationService {
       String link,
       String relatedCooperativeId,
       LocalDate relatedExpiresAt) {
-    notificationRepository.save(
-        new Notification(
-            recipientMemberId, type, title, message, link, relatedCooperativeId, relatedExpiresAt));
-    pushNotificationService.sendToMember(recipientMemberId, title, message, link);
+    Notification saved =
+        notificationRepository.save(
+            new Notification(
+                recipientMemberId, type, title, message, link, relatedCooperativeId, relatedExpiresAt));
+    // The badge on the app icon is the member's unread count, including this one.
+    long unread = notificationRepository.countByRecipientMemberIdAndReadFalse(recipientMemberId);
+    pushNotificationService.sendToMember(recipientMemberId, saved.getId(), type, title, message, link, unread);
   }
 
   public void notify(String recipientMemberId, String type, String title, String message, String link) {
