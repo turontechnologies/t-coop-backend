@@ -1,6 +1,7 @@
-package com.turontechnologies.tcoop.earnings;
+﻿package com.turontechnologies.tcoop.earnings;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
@@ -53,9 +54,11 @@ public class PlatformEarningsController {
       int subscriptionGraceDays,
       LocalDate subscriptionExpiresAt,
       LocalDate graceEndsAt,
-      boolean inGracePeriod) {
+      boolean inGracePeriod,
+      /** True when the co-op has connected its own gateway, so members can pay online. */
+      boolean onlinePayments) {
 
-    static CoopPlatformFees of(Cooperative coop) {
+    static CoopPlatformFees of(Cooperative coop, boolean onlinePayments) {
       return new CoopPlatformFees(
           coop.getId(),
           coop.getName(),
@@ -71,7 +74,8 @@ public class PlatformEarningsController {
           coop.getSubscriptionGraceDays(),
           coop.getSubscriptionExpiresAt(),
           coop.graceEndsAt(),
-          coop.isInGracePeriod());
+          coop.isInGracePeriod(),
+          onlinePayments);
     }
   }
 
@@ -124,16 +128,19 @@ public class PlatformEarningsController {
   private final CooperativeRepository cooperativeRepository;
   private final PlatformEarningRepository earningRepository;
   private final AuditLogService auditLogService;
+  private final CoopGatewayResolver gatewayResolver;
 
   public PlatformEarningsController(
       MemberRepository memberRepository,
       CooperativeRepository cooperativeRepository,
       PlatformEarningRepository earningRepository,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      CoopGatewayResolver gatewayResolver) {
     this.memberRepository = memberRepository;
     this.cooperativeRepository = cooperativeRepository;
     this.earningRepository = earningRepository;
     this.auditLogService = auditLogService;
+    this.gatewayResolver = gatewayResolver;
   }
 
   @GetMapping("/api/v1/platform-fees")
@@ -143,7 +150,7 @@ public class PlatformEarningsController {
     return ResponseEntity.ok(
         cooperativeRepository.findAll().stream()
             .sorted(Comparator.comparing(Cooperative::getName, String.CASE_INSENSITIVE_ORDER))
-            .map(CoopPlatformFees::of)
+            .map(coop -> CoopPlatformFees.of(coop, gatewayResolver.checkoutFor(coop.getId()).isPresent()))
             .toList());
   }
 
@@ -183,7 +190,7 @@ public class PlatformEarningsController {
     auditLogService.log(
         caller.getId(), caller.getRole(), "Settings", "Update",
         "Platform fees: " + coop.getName(), "Success", httpRequest);
-    return ResponseEntity.ok(CoopPlatformFees.of(coop));
+    return ResponseEntity.ok(CoopPlatformFees.of(coop, gatewayResolver.checkoutFor(coop.getId()).isPresent()));
   }
 
   /** Totals per co-op for the period (default: this month so far). */
