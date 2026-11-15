@@ -159,6 +159,75 @@ public class Cooperative {
   @Column(name = "loan_fee_mode")
   private String loanFeeMode = "General";
 
+  // The platform's own cut from this co-op (V55), set by the super admin per co-op. Charged on
+  // top of the co-op's own charges above.
+  @Column(name = "platform_savings_charge_type")
+  private String platformSavingsChargeType = "Percentage";
+
+  @Column(name = "platform_savings_charge_amount")
+  private BigDecimal platformSavingsChargeAmount = BigDecimal.ZERO;
+
+  @Column(name = "platform_loans_charge_type")
+  private String platformLoansChargeType = "Percentage";
+
+  @Column(name = "platform_loans_charge_amount")
+  private BigDecimal platformLoansChargeAmount = BigDecimal.ZERO;
+
+  @Column(name = "platform_withdrawal_fee_type")
+  private String platformWithdrawalFeeType = "Percentage";
+
+  @Column(name = "platform_withdrawal_fee_amount")
+  private BigDecimal platformWithdrawalFeeAmount = BigDecimal.ZERO;
+
+  /** The platform's percentage of every loan application fee this co-op collects. */
+  @Column(name = "platform_loan_fee_percent")
+  private BigDecimal platformLoanFeePercent = BigDecimal.ZERO;
+
+  public String getPlatformSavingsChargeType() {
+    return platformSavingsChargeType;
+  }
+
+  public BigDecimal getPlatformSavingsChargeAmount() {
+    return platformSavingsChargeAmount;
+  }
+
+  public String getPlatformLoansChargeType() {
+    return platformLoansChargeType;
+  }
+
+  public BigDecimal getPlatformLoansChargeAmount() {
+    return platformLoansChargeAmount;
+  }
+
+  public String getPlatformWithdrawalFeeType() {
+    return platformWithdrawalFeeType;
+  }
+
+  public BigDecimal getPlatformWithdrawalFeeAmount() {
+    return platformWithdrawalFeeAmount;
+  }
+
+  public BigDecimal getPlatformLoanFeePercent() {
+    return platformLoanFeePercent;
+  }
+
+  public void setPlatformFees(
+      String savingsChargeType,
+      BigDecimal savingsChargeAmount,
+      String loansChargeType,
+      BigDecimal loansChargeAmount,
+      String withdrawalFeeType,
+      BigDecimal withdrawalFeeAmount,
+      BigDecimal loanFeePercent) {
+    this.platformSavingsChargeType = savingsChargeType;
+    this.platformSavingsChargeAmount = savingsChargeAmount;
+    this.platformLoansChargeType = loansChargeType;
+    this.platformLoansChargeAmount = loansChargeAmount;
+    this.platformWithdrawalFeeType = withdrawalFeeType;
+    this.platformWithdrawalFeeAmount = withdrawalFeeAmount;
+    this.platformLoanFeePercent = loanFeePercent;
+  }
+
   /** What this co-op calls the alternative ID (V51); null = "Alternative ID". */
   @Column(name = "alternative_id_label")
   private String alternativeIdLabel;
@@ -335,12 +404,24 @@ public class Cooperative {
   }
 
   /**
-   * A co-op can act on the platform only while this is true — null (never subscribed) and a
-   * past date (lapsed) are treated identically. See SubscriptionGateFilter, the single
-   * enforcement point for this rule across every endpoint.
+   * True while the subscription period itself is running — null (never subscribed) and a past
+   * date (lapsed) are treated identically. Whether the co-op may still act also depends on the
+   * super admin's grace period: see {@link #canOperate(int)}.
    */
   public boolean hasActiveSubscription() {
     return subscriptionExpiresAt != null && !subscriptionExpiresAt.isBefore(LocalDate.now());
+  }
+
+  /** True when the subscription has expired but is still within {@code graceDays}. */
+  public boolean isInGracePeriod(int graceDays) {
+    return subscriptionExpiresAt != null
+        && subscriptionExpiresAt.isBefore(LocalDate.now())
+        && !subscriptionExpiresAt.plusDays(Math.max(graceDays, 0)).isBefore(LocalDate.now());
+  }
+
+  /** Active, or expired but still within the grace period. See SubscriptionGateFilter. */
+  public boolean canOperate(int graceDays) {
+    return hasActiveSubscription() || isInGracePeriod(graceDays);
   }
 
   /** Applied whenever a subscription payment is recorded — extends/starts the current period. */

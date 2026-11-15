@@ -47,8 +47,20 @@ public class SavingsRequest {
   @Column(name = "net_amount")
   private BigDecimal netAmount;
 
+  /** The platform's share of {@link #feeAmount} (V55); null on requests made before then. */
+  @Column(name = "platform_fee_amount")
+  private BigDecimal platformFeeAmount;
+
   @Column(name = "requested_at")
   private LocalDateTime requestedAt;
+
+  public BigDecimal getPlatformFeeAmount() {
+    return platformFeeAmount;
+  }
+
+  public void setPlatformFeeAmount(BigDecimal platformFeeAmount) {
+    this.platformFeeAmount = platformFeeAmount;
+  }
 
   @Column(name = "resolved_at")
   private LocalDateTime resolvedAt;

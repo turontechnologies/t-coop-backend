@@ -54,11 +54,13 @@ public class SubscriptionController {
   private final EmailService emailService;
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
+  private final SubscriptionGrace subscriptionGrace;
 
   @Value("${app.frontend-url}")
   private String frontendUrl;
 
   public SubscriptionController(
+      SubscriptionGrace subscriptionGrace,
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       SubscriptionPaymentRepository subscriptionPaymentRepository,
@@ -79,6 +81,7 @@ public class SubscriptionController {
     this.emailService = emailService;
     this.auditLogService = auditLogService;
     this.notificationService = notificationService;
+    this.subscriptionGrace = subscriptionGrace;
   }
 
   @GetMapping("/api/v1/subscriptions")
@@ -194,7 +197,7 @@ public class SubscriptionController {
             coop.getId(),
             coop.getName(),
             admin.getFullName(),
-            coop.hasActiveSubscription() ? "Active" : "Overdue",
+            statusOf(coop),
             coop.getSubscriptionCycle(),
             coop.getSubscriptionExpiresAt(),
             availablePlans,
@@ -370,8 +373,10 @@ public class SubscriptionController {
     // Renewing before the current period lapses extends from the existing expiry (no time
     // lost); renewing after it lapsed (or subscribing for the first time) starts counting from
     // today instead of stacking onto a date that's already in the past.
+    // Renewing inside the grace period also extends from the old expiry: the grace days are a
+    // courtesy, not free subscription time.
     LocalDate periodStart =
-        coop.hasActiveSubscription() ? coop.getSubscriptionExpiresAt() : LocalDate.now();
+        subscriptionGrace.canOperate(coop) ? coop.getSubscriptionExpiresAt() : LocalDate.now();
     LocalDate newExpiresAt = periodStart.plusDays(durationInDays);
 
     SubscriptionPayment payment =
@@ -478,7 +483,12 @@ public class SubscriptionController {
         coop.getSubscriptionCycle(),
         lastPaymentDate,
         coop.getSubscriptionExpiresAt(),
-        coop.hasActiveSubscription() ? "Active" : "Overdue");
+        statusOf(coop));
+  }
+
+  private String statusOf(Cooperative coop) {
+    if (coop.hasActiveSubscription()) return "Active";
+    return subscriptionGrace.inGrace(coop) ? "Grace Period" : "Overdue";
   }
 
   /** The internal display reference on a *confirmed* SubscriptionPayment row — only ever

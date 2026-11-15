@@ -27,11 +27,15 @@ public class SubscriptionExpiryReminderJob {
 
   private final CooperativeRepository cooperativeRepository;
   private final NotificationService notificationService;
+  private final com.turontechnologies.tcoop.subscription.SubscriptionGrace subscriptionGrace;
 
   public SubscriptionExpiryReminderJob(
-      CooperativeRepository cooperativeRepository, NotificationService notificationService) {
+      CooperativeRepository cooperativeRepository,
+      NotificationService notificationService,
+      com.turontechnologies.tcoop.subscription.SubscriptionGrace subscriptionGrace) {
     this.cooperativeRepository = cooperativeRepository;
     this.notificationService = notificationService;
+    this.subscriptionGrace = subscriptionGrace;
   }
 
   @Scheduled(cron = "0 0 8 * * *")
@@ -73,8 +77,11 @@ public class SubscriptionExpiryReminderJob {
           coop.getId(),
           "SUBSCRIPTION_EXPIRED",
           "Subscription expired",
-          "%s's subscription expired on %s. Renew now to restore access."
-              .formatted(coop.getName(), expiresAt),
+          subscriptionGrace.inGrace(coop)
+              ? "%s's subscription expired on %s. You can keep using T-Coop until %s; renew before then to avoid being locked out."
+                  .formatted(coop.getName(), expiresAt, subscriptionGrace.graceEndsAt(coop))
+              : "%s's subscription expired on %s. Renew now to restore access."
+                  .formatted(coop.getName(), expiresAt),
           "/support",
           expiresAt);
       log.info("Sent expired notification to {}", coop.getId());

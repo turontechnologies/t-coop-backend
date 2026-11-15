@@ -39,8 +39,10 @@ public class AuthController {
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final AuditLogService auditLogService;
+  private final com.turontechnologies.tcoop.subscription.SubscriptionGrace subscriptionGrace;
 
   public AuthController(
+      com.turontechnologies.tcoop.subscription.SubscriptionGrace subscriptionGrace,
       MemberRepository memberRepository,
       CooperativeRepository cooperativeRepository,
       PlatformRoleRepository platformRoleRepository,
@@ -48,6 +50,7 @@ public class AuthController {
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
       AuditLogService auditLogService) {
+    this.subscriptionGrace = subscriptionGrace;
     this.memberRepository = memberRepository;
     this.cooperativeRepository = cooperativeRepository;
     this.platformRoleRepository = platformRoleRepository;
@@ -137,7 +140,7 @@ public class AuthController {
         if ("Disabled".equals(coop.getStatus())) {
           return ResponseEntity.status(403).body(Map.of("error", COOPERATIVE_DISABLED));
         }
-        if (!"admin".equals(member.getRole()) && !coop.hasActiveSubscription()) {
+        if (!"admin".equals(member.getRole()) && !subscriptionGrace.canOperate(coop)) {
           return ResponseEntity.status(403).body(Map.of("error", SUBSCRIPTION_EXPIRED));
         }
       }

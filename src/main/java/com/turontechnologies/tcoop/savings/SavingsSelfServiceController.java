@@ -5,6 +5,8 @@ import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
+import com.turontechnologies.tcoop.earnings.PlatformEarning;
+import com.turontechnologies.tcoop.earnings.PlatformFees;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.settings.PlatformSettings;
@@ -51,8 +53,10 @@ public class SavingsSelfServiceController {
   private final PaymentGatewayService paymentGatewayService;
   private final AuditLogService auditLogService;
   private final CoopPermissions coopPermissions;
+  private final PlatformFees platformFees;
 
   public SavingsSelfServiceController(
+      PlatformFees platformFees,
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       SavingsTypeRepository savingsTypeRepository,
@@ -75,6 +79,7 @@ public class SavingsSelfServiceController {
     this.paymentGatewayService = paymentGatewayService;
     this.auditLogService = auditLogService;
     this.coopPermissions = coopPermissions;
+    this.platformFees = platformFees;
   }
 
   @PostMapping("/api/v1/cooperatives/{id}/savings/deposits/initialize")
@@ -184,6 +189,9 @@ public class SavingsSelfServiceController {
             "Success",
             null);
     savingsRecordRepository.save(record);
+    platformFees.record(
+        id, member.getId(), PlatformEarning.SAVINGS_CHARGE, intent.getAmount(),
+        PlatformFees.savingsCharge(coop, intent.getAmount()), intent.getReference());
 
     auditLogService.log(
         member.getId(), member.getRole(), "Savings", "Create", "Deposit", "Success", httpRequest);
@@ -237,6 +245,9 @@ public class SavingsSelfServiceController {
             "Success",
             request.receiptUrl());
     savingsRecordRepository.save(record);
+    platformFees.record(
+        id, target.getId(), PlatformEarning.SAVINGS_CHARGE, request.amount(),
+        PlatformFees.savingsCharge(coop, request.amount()), transactionId);
 
     auditLogService.log(
         access.caller().getId(), access.caller().getRole(), "Savings", "Create", target.getFullName(), "Success", httpRequest);
@@ -277,11 +288,8 @@ public class SavingsSelfServiceController {
     if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
-    PlatformSettings settings = platformSettings();
-
     BigDecimal coopFee = feeFor(coop.getWithdrawalFeeType(), coop.getWithdrawalFeeAmount(), request.amount());
-    BigDecimal platformFee =
-        feeFor(settings.getWithdrawalFeeType(), settings.getWithdrawalFeeAmount(), request.amount());
+    BigDecimal platformFee = PlatformFees.withdrawalFee(coop, request.amount());
     BigDecimal feeAmount = coopFee.add(platformFee);
     BigDecimal netAmount = request.amount().subtract(feeAmount);
     BigDecimal feePercent =
@@ -300,6 +308,7 @@ public class SavingsSelfServiceController {
             feePercent,
             feeAmount,
             netAmount);
+    savingsRequest.setPlatformFeeAmount(platformFee);
     savingsRequestRepository.save(savingsRequest);
 
     auditLogService.log(
@@ -425,6 +434,9 @@ public class SavingsSelfServiceController {
               "Success",
               null);
       savingsRecordRepository.save(record);
+      platformFees.record(
+          id, savingsRequest.getMemberId(), PlatformEarning.WITHDRAWAL_FEE, savingsRequest.getAmount(),
+          savingsRequest.getPlatformFeeAmount(), reference);
     }
     savingsRequest.resolve(request.status());
     savingsRequestRepository.save(savingsRequest);
@@ -460,8 +472,8 @@ public class SavingsSelfServiceController {
    * rather than a payment-processing-specific fee. */
   private BigDecimal savingsChargeFor(Cooperative coop, PlatformSettings settings, BigDecimal depositAmount) {
     BigDecimal coopCharge = feeFor(coop.getSavingsChargeType(), coop.getSavingsChargeAmount(), depositAmount);
-    BigDecimal platformCharge = feeFor(settings.getSavingsChargeType(), settings.getSavingsChargeAmount(), depositAmount);
-    return coopCharge.add(platformCharge);
+    // The platform's rate is now set per co-op by the super admin (V55).
+    return coopCharge.add(PlatformFees.savingsCharge(coop, depositAmount));
   }
 
   private SavingsType findType(String typeId, String cooperativeId) {

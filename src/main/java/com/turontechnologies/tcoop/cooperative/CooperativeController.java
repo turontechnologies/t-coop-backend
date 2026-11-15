@@ -630,6 +630,19 @@ public class CooperativeController {
             request.state(),
             request.city(),
             request.currency());
+    // The platform's fees from this co-op start at the super admin's defaults (Settings ->
+    // Payment Settings -> Fees & Charges) and can then be changed for this co-op alone.
+    PlatformSettings defaults = platformSettingsRepository.findById(1).orElse(null);
+    if (defaults != null) {
+      coop.setPlatformFees(
+          defaults.getSavingsChargeType(),
+          defaults.getSavingsChargeAmount(),
+          defaults.getLoansChargeType(),
+          defaults.getLoansChargeAmount(),
+          defaults.getWithdrawalFeeType(),
+          defaults.getWithdrawalFeeAmount(),
+          defaults.getLoanApplicationFeePercent());
+    }
     cooperativeRepository.save(coop);
     coopOffices.ensureOfficeRoles(coop.getId());
     // Every co-op starts with a Household Loan its admin can edit or disable (V41 added it to

@@ -7,10 +7,11 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 /**
- * Decides which gateway, and whose credentials, a member's savings deposit or loan repayment goes
- * through: the co-op's own (Settings -> Integrations, Paystack preferred when both are on), or —
- * when the co-op hasn't set one up — the platform's Paystack keys, which is how every co-op
- * payment worked before co-ops could bring their own.
+ * Decides which gateway a member's savings deposit, loan repayment or loan application fee goes
+ * through: the co-op's own (Settings -> Integrations, Paystack preferred when both are on). The
+ * platform's own keys are kept for payments to the platform (subscriptions) and are no longer a
+ * fallback for co-op payments; they are only used here to verify payments started on them
+ * before that change.
  */
 @Service
 public class CoopGatewayResolver {
@@ -55,24 +56,18 @@ public class CoopGatewayResolver {
       }
     }
 
-    PlatformSettings platform = platformSettings();
-    if (platform.isPaystackEnabled() && notBlank(platform.getPaystackPublicKey())) {
-      return Optional.of(new Checkout(PAYSTACK, OWNER_PLATFORM, platform.getPaystackPublicKey()));
-    }
+    // No fallback to the platform's keys: those are only for payments to the platform itself
+    // (subscriptions). A co-op's money goes through the co-op's own gateway.
     return Optional.empty();
   }
 
-  /** The Paystack secret a loan payout is sent from: the co-op's own Paystack account if it has
-   * connected one, else the platform's. Empty when neither is set up. Only Paystack — there's no
+  /** The Paystack secret a loan or withdrawal payout is sent from: the co-op's own Paystack
+   * account only. Empty when the co-op hasn't connected one. Only Paystack — there's no
    * Flutterwave payout path. */
   public Optional<String> payoutSecretKeyFor(String cooperativeId) {
     CooperativePaymentGateway coop = gatewayRepository.findById(cooperativeId).orElse(null);
     if (coop != null && coop.isPaystackEnabled() && notBlank(coop.getPaystackSecretKey())) {
       return Optional.of(coop.getPaystackSecretKey());
-    }
-    PlatformSettings platform = platformSettings();
-    if (platform.isPaystackEnabled() && notBlank(platform.getPaystackSecretKey())) {
-      return Optional.of(platform.getPaystackSecretKey());
     }
     return Optional.empty();
   }

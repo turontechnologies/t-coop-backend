@@ -6,6 +6,8 @@ import com.turontechnologies.tcoop.coopstaff.CoopOffices;
 import com.turontechnologies.tcoop.coopstaff.CoopPermissions;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
+import com.turontechnologies.tcoop.earnings.PlatformEarning;
+import com.turontechnologies.tcoop.earnings.PlatformFees;
 import com.turontechnologies.tcoop.loan.LoanCommittee.Step;
 import com.turontechnologies.tcoop.loan.LoanOfferRequests.Disburse;
 import com.turontechnologies.tcoop.loan.LoanOfferRequests.OfferResponse;
@@ -91,8 +93,10 @@ public class LoanSelfServiceController {
   private final PaymentGatewayService paymentGatewayService;
   private final NotificationService notificationService;
   private final AuditLogService auditLogService;
+  private final PlatformFees platformFees;
 
   public LoanSelfServiceController(
+      PlatformFees platformFees,
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       LoanTypeRepository loanTypeRepository,
@@ -110,6 +114,7 @@ public class LoanSelfServiceController {
       PaymentGatewayService paymentGatewayService,
       NotificationService notificationService,
       AuditLogService auditLogService) {
+    this.platformFees = platformFees;
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.loanTypeRepository = loanTypeRepository;
@@ -808,6 +813,9 @@ public class LoanSelfServiceController {
         caller.getFullName());
     record.setStatus("Active");
     loanRecordRepository.save(record);
+    platformFees.record(
+        id, record.getMemberId(), PlatformEarning.LOAN_CHARGE, record.getAmount(),
+        PlatformFees.loansCharge(coop, record.getAmount()), reference);
 
     if (record.isWithin()) {
       // The loan is borrowed from the member's own savings: take the principal out of them.
@@ -1020,8 +1028,8 @@ public class LoanSelfServiceController {
    * The member still owes and repays the full approved amount. */
   private BigDecimal loansChargeFor(Cooperative coop, PlatformSettings settings, BigDecimal loanAmount) {
     BigDecimal coopCharge = feeFor(coop.getLoansChargeType(), coop.getLoansChargeAmount(), loanAmount);
-    BigDecimal platformCharge = feeFor(settings.getLoansChargeType(), settings.getLoansChargeAmount(), loanAmount);
-    return coopCharge.add(platformCharge);
+    // The platform's rate is now set per co-op by the super admin (V55).
+    return coopCharge.add(PlatformFees.loansCharge(coop, loanAmount));
   }
 
   private PlatformSettings platformSettings() {

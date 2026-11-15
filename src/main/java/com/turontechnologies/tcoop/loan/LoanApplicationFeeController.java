@@ -4,6 +4,8 @@ import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
 import com.turontechnologies.tcoop.cooperative.Cooperative;
 import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
+import com.turontechnologies.tcoop.earnings.PlatformEarning;
+import com.turontechnologies.tcoop.earnings.PlatformFees;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import com.turontechnologies.tcoop.subscription.PaymentGatewayService;
@@ -70,8 +72,10 @@ public class LoanApplicationFeeController {
   private final LoanFeeRules feeRules;
   private final CoopGatewayResolver gatewayResolver;
   private final AuditLogService auditLogService;
+  private final PlatformFees platformFees;
 
   public LoanApplicationFeeController(
+      PlatformFees platformFees,
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       LoanTypeRepository loanTypeRepository,
@@ -79,6 +83,7 @@ public class LoanApplicationFeeController {
       LoanFeeRules feeRules,
       CoopGatewayResolver gatewayResolver,
       AuditLogService auditLogService) {
+    this.platformFees = platformFees;
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.loanTypeRepository = loanTypeRepository;
@@ -190,6 +195,13 @@ public class LoanApplicationFeeController {
     }
     fee.markPaid();
     feeRepository.save(fee);
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop != null) {
+      // The fee goes to the co-op; the platform's share of it is recorded as earned.
+      platformFees.record(
+          id, caller.getId(), PlatformEarning.LOAN_APPLICATION_FEE, fee.getAmount(),
+          PlatformFees.loanApplicationFeeShare(coop, fee.getAmount()), fee.getReference());
+    }
     auditLogService.log(caller.getId(), caller.getRole(), "Loans", "Create", "Loan application fee", "Success", httpRequest);
     return ResponseEntity.ok(FeeCredit.of(fee));
   }

@@ -1,6 +1,8 @@
 package com.turontechnologies.tcoop.settings;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
+import com.turontechnologies.tcoop.cooperative.Cooperative;
+import com.turontechnologies.tcoop.cooperative.CooperativeRepository;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,14 +29,17 @@ public class PlatformSettingsController {
   private final MemberRepository memberRepository;
   private final PlatformSettingsRepository settingsRepository;
   private final AuditLogService auditLogService;
+  private final CooperativeRepository cooperativeRepository;
 
   public PlatformSettingsController(
       MemberRepository memberRepository,
       PlatformSettingsRepository settingsRepository,
-      AuditLogService auditLogService) {
+      AuditLogService auditLogService,
+      CooperativeRepository cooperativeRepository) {
     this.memberRepository = memberRepository;
     this.settingsRepository = settingsRepository;
     this.auditLogService = auditLogService;
+    this.cooperativeRepository = cooperativeRepository;
   }
 
   @GetMapping("/api/v1/settings/fees")
@@ -49,10 +54,18 @@ public class PlatformSettingsController {
   @GetMapping("/api/v1/settings/withdrawal-fee")
   public ResponseEntity<?> getWithdrawalFee(Authentication authentication) {
     String callerId = (String) authentication.getPrincipal();
-    if (memberRepository.findById(callerId).isEmpty()) {
+    Member caller = memberRepository.findById(callerId).orElse(null);
+    if (caller == null) {
       return ResponseEntity.status(401).body(Map.of("error", "Member no longer exists"));
     }
-    return ResponseEntity.ok(WithdrawalFeeDto.from(settings()));
+    // The platform's withdrawal fee is set per co-op: return the caller's own co-op's.
+    Cooperative coop =
+        caller.getCooperativeId() == null
+            ? null
+            : cooperativeRepository.findById(caller.getCooperativeId()).orElse(null);
+    if (coop == null) return ResponseEntity.ok(WithdrawalFeeDto.from(settings()));
+    return ResponseEntity.ok(
+        new WithdrawalFeeDto(coop.getPlatformWithdrawalFeeAmount(), coop.getPlatformWithdrawalFeeType()));
   }
 
   @PatchMapping("/api/v1/settings/fees")
@@ -71,6 +84,8 @@ public class PlatformSettingsController {
         request.loansChargeAmount(),
         request.withdrawalFeeAmount(),
         request.withdrawalFeeType());
+    settings.setLoanApplicationFeePercent(request.loanApplicationFeePercent());
+    settings.setSubscriptionGraceDays(request.subscriptionGraceDays());
     settingsRepository.save(settings);
 
     logSettingsUpdate(authentication, "Fees & Charges", httpRequest);

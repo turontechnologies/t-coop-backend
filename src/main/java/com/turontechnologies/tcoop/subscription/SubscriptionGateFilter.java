@@ -44,14 +44,17 @@ public class SubscriptionGateFilter extends OncePerRequestFilter {
   private final MemberRepository memberRepository;
   private final CooperativeRepository cooperativeRepository;
   private final ObjectMapper objectMapper;
+  private final SubscriptionGrace subscriptionGrace;
 
   public SubscriptionGateFilter(
       MemberRepository memberRepository,
       CooperativeRepository cooperativeRepository,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      SubscriptionGrace subscriptionGrace) {
     this.memberRepository = memberRepository;
     this.cooperativeRepository = cooperativeRepository;
     this.objectMapper = objectMapper;
+    this.subscriptionGrace = subscriptionGrace;
   }
 
   @Override
@@ -90,7 +93,8 @@ public class SubscriptionGateFilter extends OncePerRequestFilter {
       reject(response, 403, DISABLED_MESSAGE);
       return;
     }
-    if (!coop.hasActiveSubscription()) {
+    // The super admin's grace period keeps a lapsed co-op working for a few more days.
+    if (!subscriptionGrace.canOperate(coop)) {
       reject(response, 402, EXPIRED_MESSAGE);
       return;
     }

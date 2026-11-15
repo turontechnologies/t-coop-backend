@@ -34,7 +34,8 @@ public class SecurityConfig {
       CorsConfigurationSource corsConfigurationSource,
       MemberRepository memberRepository,
       CooperativeRepository cooperativeRepository,
-      ObjectMapper objectMapper)
+      ObjectMapper objectMapper,
+      com.turontechnologies.tcoop.subscription.SubscriptionGrace subscriptionGrace)
       throws Exception {
     http.csrf(AbstractHttpConfigurer::disable)
         // Registers CORS as a filter in the security chain itself (not just an MVC concern) —
@@ -66,7 +67,8 @@ public class SecurityConfig {
         // Must run after JwtAuthenticationFilter so the caller's identity is already resolved
         // into the SecurityContext by the time this checks their co-op's subscription standing.
         .addFilterAfter(
-            new SubscriptionGateFilter(memberRepository, cooperativeRepository, objectMapper),
+            new SubscriptionGateFilter(
+                memberRepository, cooperativeRepository, objectMapper, subscriptionGrace),
             JwtAuthenticationFilter.class);
 
     return http.build();
