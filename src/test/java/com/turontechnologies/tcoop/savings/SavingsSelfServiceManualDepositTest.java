@@ -53,6 +53,7 @@ class SavingsSelfServiceManualDepositTest {
 
     SavingsSelfServiceController controller =
         new SavingsSelfServiceController(
+            mock(com.turontechnologies.tcoop.earnings.PlatformFees.class),
             cooperativeRepository,
             memberRepository,
             savingsTypeRepository,
