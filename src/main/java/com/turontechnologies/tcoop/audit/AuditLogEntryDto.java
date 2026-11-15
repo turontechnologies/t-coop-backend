@@ -11,4 +11,6 @@ public record AuditLogEntryDto(
     String resource,
     String status,
     String location,
-    String ipAddress) {}
+    String ipAddress,
+    /** The actor's co-operative, null for platform accounts. */
+    String cooperative) {}
