@@ -1,4 +1,4 @@
-﻿package com.turontechnologies.tcoop.earnings;
+package com.turontechnologies.tcoop.earnings;
 
 import com.turontechnologies.tcoop.audit.AuditLogService;
 import com.turontechnologies.tcoop.coopgateway.CoopGatewayResolver;
