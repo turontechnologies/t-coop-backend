@@ -14,7 +14,8 @@ public record FeeSettingsDto(
     BigDecimal loansChargeAmount,
     BigDecimal withdrawalFeeAmount,
     String withdrawalFeeType,
-    BigDecimal loanApplicationFeePercent,
+    String loanApplicationFeeType,
+    BigDecimal loanApplicationFeeAmount,
     int subscriptionGraceDays) {
 
   public static FeeSettingsDto from(PlatformSettings settings) {
@@ -25,7 +26,8 @@ public record FeeSettingsDto(
         settings.getLoansChargeAmount(),
         settings.getWithdrawalFeeAmount(),
         settings.getWithdrawalFeeType(),
-        settings.getLoanApplicationFeePercent(),
+        settings.getLoanApplicationFeeType(),
+        settings.getLoanApplicationFeeAmount(),
         settings.getSubscriptionGraceDays());
   }
 }

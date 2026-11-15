@@ -641,7 +641,9 @@ public class CooperativeController {
           defaults.getLoansChargeAmount(),
           defaults.getWithdrawalFeeType(),
           defaults.getWithdrawalFeeAmount(),
-          defaults.getLoanApplicationFeePercent());
+          defaults.getLoanApplicationFeeType(),
+          defaults.getLoanApplicationFeeAmount());
+      coop.setSubscriptionGraceDays(defaults.getSubscriptionGraceDays());
     }
     cooperativeRepository.save(coop);
     coopOffices.ensureOfficeRoles(coop.getId());

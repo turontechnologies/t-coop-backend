@@ -100,11 +100,14 @@ public class PlatformSettings {
   @Column(name = "coop_id_type")
   private String coopIdType;
 
-  /** Default platform % of loan application fees for a newly created co-op (V55). */
-  @Column(name = "loan_application_fee_percent")
-  private BigDecimal loanApplicationFeePercent = BigDecimal.ZERO;
+  /** Default platform share of loan application fees for a newly created co-op (V55/V56). */
+  @Column(name = "loan_application_fee_type")
+  private String loanApplicationFeeType = "Percentage";
 
-  /** Days a co-op keeps working after its subscription expires (V55). */
+  @Column(name = "loan_application_fee_amount")
+  private BigDecimal loanApplicationFeeAmount = BigDecimal.ZERO;
+
+  /** Default grace days for a newly created co-op (V55); each co-op then has its own (V56). */
   @Column(name = "subscription_grace_days")
   private int subscriptionGraceDays;
 
@@ -112,16 +115,21 @@ public class PlatformSettings {
     // JPA
   }
 
-  public BigDecimal getLoanApplicationFeePercent() {
-    return loanApplicationFeePercent == null ? BigDecimal.ZERO : loanApplicationFeePercent;
+  public String getLoanApplicationFeeType() {
+    return loanApplicationFeeType == null ? "Percentage" : loanApplicationFeeType;
+  }
+
+  public BigDecimal getLoanApplicationFeeAmount() {
+    return loanApplicationFeeAmount == null ? BigDecimal.ZERO : loanApplicationFeeAmount;
   }
 
   public int getSubscriptionGraceDays() {
     return subscriptionGraceDays;
   }
 
-  public void setLoanApplicationFeePercent(BigDecimal loanApplicationFeePercent) {
-    this.loanApplicationFeePercent = loanApplicationFeePercent;
+  public void setLoanApplicationFee(String type, BigDecimal amount) {
+    this.loanApplicationFeeType = type;
+    this.loanApplicationFeeAmount = amount;
   }
 
   public void setSubscriptionGraceDays(int subscriptionGraceDays) {

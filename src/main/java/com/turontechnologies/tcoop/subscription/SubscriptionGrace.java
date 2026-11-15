@@ -1,38 +1,31 @@
 package com.turontechnologies.tcoop.subscription;
 
 import com.turontechnologies.tcoop.cooperative.Cooperative;
-import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import java.time.LocalDate;
 import org.springframework.stereotype.Component;
 
 /**
- * The super admin's subscription grace period (Settings -> Payment Settings -> Fees & Charges):
- * how many days a co-op keeps working after its subscription expires before it is blocked.
+ * Each co-op's subscription grace period (V56), set by the super admin per co-op under Settings ->
+ * Payment Settings: how many days a co-op keeps working after its subscription expires.
  */
 @Component
 public class SubscriptionGrace {
 
-  private final PlatformSettingsRepository settingsRepository;
-
-  public SubscriptionGrace(PlatformSettingsRepository settingsRepository) {
-    this.settingsRepository = settingsRepository;
-  }
-
-  public int days() {
-    return settingsRepository.findById(1).map(settings -> settings.getSubscriptionGraceDays()).orElse(0);
+  public int days(Cooperative coop) {
+    return coop.getSubscriptionGraceDays();
   }
 
   /** Active, or expired but still inside the grace period. */
   public boolean canOperate(Cooperative coop) {
-    return coop.canOperate(days());
+    return coop.canOperate();
   }
 
   public boolean inGrace(Cooperative coop) {
-    return coop.isInGracePeriod(days());
+    return coop.isInGracePeriod();
   }
 
   /** The last day the co-op can still work; null if it has never subscribed. */
   public LocalDate graceEndsAt(Cooperative coop) {
-    return coop.getSubscriptionExpiresAt() == null ? null : coop.getSubscriptionExpiresAt().plusDays(days());
+    return coop.graceEndsAt();
   }
 }

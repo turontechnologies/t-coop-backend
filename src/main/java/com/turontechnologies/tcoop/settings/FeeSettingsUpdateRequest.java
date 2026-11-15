@@ -25,10 +25,11 @@ public record FeeSettingsUpdateRequest(
         BigDecimal withdrawalFeeAmount,
     @Pattern(regexp = "Fixed|Percentage", message = "Select a valid withdrawal fee type")
         String withdrawalFeeType,
-    @NotNull(message = "Enter a percentage from 0 to 100")
-        @DecimalMin(value = "0", message = "Enter a percentage from 0 to 100")
-        @DecimalMax(value = "100", message = "Enter a percentage from 0 to 100")
-        BigDecimal loanApplicationFeePercent,
+    @Pattern(regexp = "Fixed|Percentage", message = "Select a valid loan application fee type")
+        String loanApplicationFeeType,
+    @NotNull(message = "Enter an amount of 0 or more")
+        @DecimalMin(value = "0", message = "Enter an amount of 0 or more")
+        BigDecimal loanApplicationFeeAmount,
     @Min(value = 0, message = "Enter 0 or more days")
         @Max(value = 365, message = "The grace period can be at most 365 days")
         int subscriptionGraceDays) {}

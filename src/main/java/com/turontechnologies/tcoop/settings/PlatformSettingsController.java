@@ -76,6 +76,12 @@ public class PlatformSettingsController {
     var forbidden = requireSuperAdmin(authentication);
     if (forbidden != null) return forbidden;
 
+    if ("Percentage".equals(request.loanApplicationFeeType())
+        && request.loanApplicationFeeAmount().compareTo(java.math.BigDecimal.valueOf(100)) > 0) {
+      return ResponseEntity.badRequest()
+          .body(java.util.Map.of("error", "The loan application fee share can be at most 100%"));
+    }
+
     PlatformSettings settings = settings();
     settings.updateFees(
         request.savingsChargeType(),
@@ -84,7 +90,7 @@ public class PlatformSettingsController {
         request.loansChargeAmount(),
         request.withdrawalFeeAmount(),
         request.withdrawalFeeType());
-    settings.setLoanApplicationFeePercent(request.loanApplicationFeePercent());
+    settings.setLoanApplicationFee(request.loanApplicationFeeType(), request.loanApplicationFeeAmount());
     settings.setSubscriptionGraceDays(request.subscriptionGraceDays());
     settingsRepository.save(settings);
 

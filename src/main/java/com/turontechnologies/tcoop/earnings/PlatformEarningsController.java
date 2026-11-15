@@ -7,8 +7,9 @@ import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
@@ -47,7 +48,12 @@ public class PlatformEarningsController {
       BigDecimal loansChargeAmount,
       String withdrawalFeeType,
       BigDecimal withdrawalFeeAmount,
-      BigDecimal loanApplicationFeePercent) {
+      String loanApplicationFeeType,
+      BigDecimal loanApplicationFeeAmount,
+      int subscriptionGraceDays,
+      LocalDate subscriptionExpiresAt,
+      LocalDate graceEndsAt,
+      boolean inGracePeriod) {
 
     static CoopPlatformFees of(Cooperative coop) {
       return new CoopPlatformFees(
@@ -60,7 +66,12 @@ public class PlatformEarningsController {
           coop.getPlatformLoansChargeAmount(),
           coop.getPlatformWithdrawalFeeType(),
           coop.getPlatformWithdrawalFeeAmount(),
-          coop.getPlatformLoanFeePercent());
+          coop.getPlatformLoanFeeType(),
+          coop.getPlatformLoanFeeAmount(),
+          coop.getSubscriptionGraceDays(),
+          coop.getSubscriptionExpiresAt(),
+          coop.graceEndsAt(),
+          coop.isInGracePeriod());
     }
   }
 
@@ -71,10 +82,11 @@ public class PlatformEarningsController {
       @NotNull @DecimalMin(value = "0", message = "Enter an amount of 0 or more") BigDecimal loansChargeAmount,
       @Pattern(regexp = "Fixed|Percentage", message = "Select a valid withdrawal fee type") String withdrawalFeeType,
       @NotNull @DecimalMin(value = "0", message = "Enter an amount of 0 or more") BigDecimal withdrawalFeeAmount,
-      @NotNull
-          @DecimalMin(value = "0", message = "Enter a percentage from 0 to 100")
-          @DecimalMax(value = "100", message = "Enter a percentage from 0 to 100")
-          BigDecimal loanApplicationFeePercent) {}
+      @Pattern(regexp = "Fixed|Percentage", message = "Select a valid loan application fee type") String loanApplicationFeeType,
+      @NotNull @DecimalMin(value = "0", message = "Enter an amount of 0 or more") BigDecimal loanApplicationFeeAmount,
+      @Min(value = 0, message = "Enter 0 or more days")
+          @Max(value = 365, message = "The grace period can be at most 365 days")
+          int subscriptionGraceDays) {}
 
   /** One co-op's earnings for the period, with the amount from each source. */
   public record CoopEarnings(
@@ -147,6 +159,16 @@ public class PlatformEarningsController {
     if (coop == null) {
       return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
     }
+    for (var pct :
+        List.of(
+            Map.entry(request.savingsChargeType(), request.savingsChargeAmount()),
+            Map.entry(request.loansChargeType(), request.loansChargeAmount()),
+            Map.entry(request.withdrawalFeeType(), request.withdrawalFeeAmount()),
+            Map.entry(request.loanApplicationFeeType(), request.loanApplicationFeeAmount()))) {
+      if ("Percentage".equals(pct.getKey()) && pct.getValue().compareTo(BigDecimal.valueOf(100)) > 0) {
+        return ResponseEntity.badRequest().body(Map.of("error", "A percentage can be at most 100%"));
+      }
+    }
     coop.setPlatformFees(
         request.savingsChargeType(),
         request.savingsChargeAmount(),
@@ -154,7 +176,9 @@ public class PlatformEarningsController {
         request.loansChargeAmount(),
         request.withdrawalFeeType(),
         request.withdrawalFeeAmount(),
-        request.loanApplicationFeePercent());
+        request.loanApplicationFeeType(),
+        request.loanApplicationFeeAmount());
+    coop.setSubscriptionGraceDays(request.subscriptionGraceDays());
     cooperativeRepository.save(coop);
     auditLogService.log(
         caller.getId(), caller.getRole(), "Settings", "Update",

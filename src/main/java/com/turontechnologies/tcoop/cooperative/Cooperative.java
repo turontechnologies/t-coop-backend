@@ -179,9 +179,27 @@ public class Cooperative {
   @Column(name = "platform_withdrawal_fee_amount")
   private BigDecimal platformWithdrawalFeeAmount = BigDecimal.ZERO;
 
-  /** The platform's percentage of every loan application fee this co-op collects. */
-  @Column(name = "platform_loan_fee_percent")
-  private BigDecimal platformLoanFeePercent = BigDecimal.ZERO;
+  /**
+   * The platform's share of every loan application fee this co-op collects (V56): a fixed amount
+   * (capped at the fee itself) or a percentage of it.
+   */
+  @Column(name = "platform_loan_fee_type")
+  private String platformLoanFeeType = "Percentage";
+
+  @Column(name = "platform_loan_fee_amount")
+  private BigDecimal platformLoanFeeAmount = BigDecimal.ZERO;
+
+  /** Days this co-op keeps working after its subscription expires (V56), set by the super admin. */
+  @Column(name = "subscription_grace_days")
+  private int subscriptionGraceDays;
+
+  public int getSubscriptionGraceDays() {
+    return subscriptionGraceDays;
+  }
+
+  public void setSubscriptionGraceDays(int subscriptionGraceDays) {
+    this.subscriptionGraceDays = Math.max(subscriptionGraceDays, 0);
+  }
 
   public String getPlatformSavingsChargeType() {
     return platformSavingsChargeType;
@@ -207,8 +225,12 @@ public class Cooperative {
     return platformWithdrawalFeeAmount;
   }
 
-  public BigDecimal getPlatformLoanFeePercent() {
-    return platformLoanFeePercent;
+  public String getPlatformLoanFeeType() {
+    return platformLoanFeeType;
+  }
+
+  public BigDecimal getPlatformLoanFeeAmount() {
+    return platformLoanFeeAmount;
   }
 
   public void setPlatformFees(
@@ -218,14 +240,16 @@ public class Cooperative {
       BigDecimal loansChargeAmount,
       String withdrawalFeeType,
       BigDecimal withdrawalFeeAmount,
-      BigDecimal loanFeePercent) {
+      String loanFeeType,
+      BigDecimal loanFeeAmount) {
     this.platformSavingsChargeType = savingsChargeType;
     this.platformSavingsChargeAmount = savingsChargeAmount;
     this.platformLoansChargeType = loansChargeType;
     this.platformLoansChargeAmount = loansChargeAmount;
     this.platformWithdrawalFeeType = withdrawalFeeType;
     this.platformWithdrawalFeeAmount = withdrawalFeeAmount;
-    this.platformLoanFeePercent = loanFeePercent;
+    this.platformLoanFeeType = loanFeeType;
+    this.platformLoanFeeAmount = loanFeeAmount;
   }
 
   /** What this co-op calls the alternative ID (V51); null = "Alternative ID". */
@@ -406,22 +430,27 @@ public class Cooperative {
   /**
    * True while the subscription period itself is running — null (never subscribed) and a past
    * date (lapsed) are treated identically. Whether the co-op may still act also depends on the
-   * super admin's grace period: see {@link #canOperate(int)}.
+   * co-op's grace period: see {@link #canOperate()}.
    */
   public boolean hasActiveSubscription() {
     return subscriptionExpiresAt != null && !subscriptionExpiresAt.isBefore(LocalDate.now());
   }
 
-  /** True when the subscription has expired but is still within {@code graceDays}. */
-  public boolean isInGracePeriod(int graceDays) {
+  /** True when the subscription has expired but is still within this co-op's grace days. */
+  public boolean isInGracePeriod() {
     return subscriptionExpiresAt != null
         && subscriptionExpiresAt.isBefore(LocalDate.now())
-        && !subscriptionExpiresAt.plusDays(Math.max(graceDays, 0)).isBefore(LocalDate.now());
+        && !subscriptionExpiresAt.plusDays(Math.max(subscriptionGraceDays, 0)).isBefore(LocalDate.now());
   }
 
   /** Active, or expired but still within the grace period. See SubscriptionGateFilter. */
-  public boolean canOperate(int graceDays) {
-    return hasActiveSubscription() || isInGracePeriod(graceDays);
+  public boolean canOperate() {
+    return hasActiveSubscription() || isInGracePeriod();
+  }
+
+  /** The last day the co-op can still work; null if it has never subscribed. */
+  public LocalDate graceEndsAt() {
+    return subscriptionExpiresAt == null ? null : subscriptionExpiresAt.plusDays(Math.max(subscriptionGraceDays, 0));
   }
 
   /** Applied whenever a subscription payment is recorded — extends/starts the current period. */

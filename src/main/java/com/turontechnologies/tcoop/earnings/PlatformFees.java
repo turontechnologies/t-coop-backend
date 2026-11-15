@@ -41,8 +41,11 @@ public class PlatformFees {
     return feeFor(coop.getPlatformWithdrawalFeeType(), coop.getPlatformWithdrawalFeeAmount(), withdrawal);
   }
 
+  /** The platform's share of an application fee; a fixed share never exceeds the fee itself. */
   public static BigDecimal loanApplicationFeeShare(Cooperative coop, BigDecimal applicationFee) {
-    return feeFor("Percentage", coop.getPlatformLoanFeePercent(), applicationFee);
+    if (applicationFee == null) return BigDecimal.ZERO;
+    BigDecimal share = feeFor(coop.getPlatformLoanFeeType(), coop.getPlatformLoanFeeAmount(), applicationFee);
+    return share.min(applicationFee.setScale(2, RoundingMode.HALF_UP));
   }
 
   /**
