@@ -24,8 +24,16 @@ public final class LoanOfferRequests {
       @Size(max = 200) String accountName,
       @Size(max = 1000) String reason) {}
 
+  /**
+   * How the loan is paid out: "Online" (the platform's payout), "Cheque" (a photo of it), or
+   * "Transfer" — a bank transfer the co-op already made itself, outside the platform, with the
+   * transfer receipt ({@code receiptUrl}) and, optionally, its reference.
+   */
   public record Disburse(
-      @NotBlank @Pattern(regexp = "Online|Cheque", message = "Choose online or cheque") String method,
+      @NotBlank @Pattern(regexp = "Online|Cheque|Transfer", message = "Choose online, cheque or bank transfer")
+          String method,
       @Size(max = 500) String chequeUrl,
-      @Size(max = 30) String chequeNumber) {}
+      @Size(max = 30) String chequeNumber,
+      @Size(max = 500) String receiptUrl,
+      @Size(max = 30) String transferReference) {}
 }

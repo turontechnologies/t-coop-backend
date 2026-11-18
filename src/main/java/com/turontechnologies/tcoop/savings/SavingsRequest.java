@@ -146,7 +146,21 @@ public class SavingsRequest {
   }
 
   public void resolve(String status) {
+    resolve(status, null);
+  }
+
+  /** {@code reason} is kept only for a decline, so the member knows why. */
+  public void resolve(String status, String reason) {
     this.status = status;
     this.resolvedAt = LocalDateTime.now();
+    this.declineReason =
+        "Declined".equals(status) && reason != null && !reason.isBlank() ? reason.trim() : null;
+  }
+
+  @Column(name = "decline_reason")
+  private String declineReason;
+
+  public String getDeclineReason() {
+    return declineReason;
   }
 }

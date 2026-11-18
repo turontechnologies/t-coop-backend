@@ -29,6 +29,8 @@ public interface LoanRecordRepository extends JpaRepository<LoanRecord, UUID> {
   @Query("select coalesce(sum(l.amount), 0) from LoanRecord l where l.status in ('Active', 'Completed')")
   BigDecimal sumAll();
 
+  java.util.List<LoanRecord> findAllByCooperativeIdAndStatus(String cooperativeId, String status);
+
   List<LoanRecord> findAllByCooperativeIdOrderByCreatedAtDesc(
       String cooperativeId, Pageable pageable);
 

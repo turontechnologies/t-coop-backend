@@ -81,6 +81,11 @@ public class SavingsRecord {
     this.createdAt = LocalDateTime.now();
   }
 
+  /** For a bulk upload: the day the money was actually saved, when it wasn't today. */
+  public void setRecordDate(LocalDate recordDate) {
+    this.recordDate = recordDate;
+  }
+
   public UUID getId() {
     return id;
   }

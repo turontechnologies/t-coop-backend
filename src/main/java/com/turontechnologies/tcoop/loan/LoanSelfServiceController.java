@@ -797,6 +797,13 @@ public class LoanSelfServiceController {
             .body(Map.of("error", transfer.message() != null ? transfer.message() : "The payout didn't go through."));
       }
       transferStatus = transfer.status();
+    } else if ("Transfer".equals(request.method())) {
+      // The co-op already sent the money from its own bank: we only record it, with the receipt.
+      if (!notBlank(request.receiptUrl())) {
+        return ResponseEntity.badRequest().body(Map.of("error", "Upload the transfer receipt before marking the loan as paid"));
+      }
+      reference = "transfer-" + (notBlank(request.transferReference()) ? request.transferReference().trim() : record.getId().toString().substring(0, 8));
+      transferStatus = "Transfer";
     } else {
       if (!notBlank(request.chequeUrl())) {
         return ResponseEntity.badRequest().body(Map.of("error", "Upload the cheque before disbursing"));
@@ -805,12 +812,16 @@ public class LoanSelfServiceController {
       transferStatus = "Cheque";
     }
 
+    // A cheque's photo and number, or a bank transfer's receipt and reference, share these columns.
+    boolean cheque = "Cheque".equals(request.method());
+    boolean bankTransfer = "Transfer".equals(request.method());
+    String proofUrl = cheque ? request.chequeUrl() : bankTransfer ? request.receiptUrl() : null;
+    String proofNumber =
+        cheque && notBlank(request.chequeNumber()) ? request.chequeNumber().trim()
+            : bankTransfer && notBlank(request.transferReference()) ? request.transferReference().trim()
+            : null;
     record.markDisbursed(reference, transferStatus, net);
-    record.setDisbursementDetails(
-        request.method(),
-        "Cheque".equals(request.method()) ? request.chequeUrl() : null,
-        "Cheque".equals(request.method()) && notBlank(request.chequeNumber()) ? request.chequeNumber().trim() : null,
-        caller.getFullName());
+    record.setDisbursementDetails(request.method(), proofUrl, proofNumber, caller.getFullName());
     record.setStatus("Active");
     loanRecordRepository.save(record);
     platformFees.record(
@@ -828,15 +839,17 @@ public class LoanSelfServiceController {
         record,
         "A loan you guaranteed was paid out",
         applicantName + "'s " + typeName + " loan was paid out: " + naira(net)
-            + ("Cheque".equals(request.method()) ? " by cheque" : "") + ". It's repaid over "
+            + (cheque ? " by cheque" : bankTransfer ? " by bank transfer" : "") + ". It's repaid over "
             + record.getDurationMonths() + " month" + (record.getDurationMonths() == 1 ? "" : "s") + ".");
     if (applicant != null) {
       notificationService.notify(
           applicant.getId(),
           "LOAN_DISBURSED",
           "Your loan has been paid out",
-          "Cheque".equals(request.method())
+          cheque
               ? "Your " + typeName + " loan of " + naira(net) + " has been paid by cheque."
+              : bankTransfer
+              ? "Your " + typeName + " loan of " + naira(net) + " was paid to you by bank transfer."
               : "Your " + typeName + " loan was paid out: " + naira(net) + " has been sent to your bank account.",
           "/loans/" + record.getId());
     }

@@ -17,7 +17,8 @@ public record SavingsRequestDto(
     BigDecimal feeAmount,
     BigDecimal netAmount,
     LocalDateTime requestedAt,
-    LocalDateTime resolvedAt) {
+    LocalDateTime resolvedAt,
+    String declineReason) {
 
   public static SavingsRequestDto from(SavingsRequest request, String memberName, String savingsTypeName) {
     return new SavingsRequestDto(
@@ -33,6 +34,7 @@ public record SavingsRequestDto(
         request.getFeeAmount(),
         request.getNetAmount(),
         request.getRequestedAt(),
-        request.getResolvedAt());
+        request.getResolvedAt(),
+        request.getDeclineReason());
   }
 }

@@ -9,6 +9,7 @@ import com.turontechnologies.tcoop.earnings.PlatformEarning;
 import com.turontechnologies.tcoop.earnings.PlatformFees;
 import com.turontechnologies.tcoop.member.Member;
 import com.turontechnologies.tcoop.member.MemberRepository;
+import com.turontechnologies.tcoop.notification.NotificationService;
 import com.turontechnologies.tcoop.settings.PlatformSettings;
 import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import com.turontechnologies.tcoop.subscription.PaymentGatewayService;
@@ -54,8 +55,10 @@ public class SavingsSelfServiceController {
   private final AuditLogService auditLogService;
   private final CoopPermissions coopPermissions;
   private final PlatformFees platformFees;
+  private final NotificationService notificationService;
 
   public SavingsSelfServiceController(
+      NotificationService notificationService,
       PlatformFees platformFees,
       CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
@@ -80,6 +83,7 @@ public class SavingsSelfServiceController {
     this.auditLogService = auditLogService;
     this.coopPermissions = coopPermissions;
     this.platformFees = platformFees;
+    this.notificationService = notificationService;
   }
 
   @PostMapping("/api/v1/cooperatives/{id}/savings/deposits/initialize")
@@ -313,6 +317,15 @@ public class SavingsSelfServiceController {
 
     auditLogService.log(
         member.getId(), member.getRole(), "Savings", "Create", "Withdrawal request", "Success", httpRequest);
+    if (!member.getId().equals(id)) {
+      notificationService.notifyCoopAdmin(
+          id,
+          "SAVINGS_WITHDRAWAL_REQUESTED",
+          "New withdrawal request",
+          member.getFullName() + " asked to withdraw " + naira(request.amount())
+              + " from " + (type != null ? type.getName() : "their savings") + ".",
+          "/savings");
+    }
 
     return ResponseEntity.ok(
         SavingsRequestDto.from(savingsRequest, member.getFullName(), type != null ? type.getName() : "Total Savings"));
@@ -438,8 +451,9 @@ public class SavingsSelfServiceController {
           id, savingsRequest.getMemberId(), PlatformEarning.WITHDRAWAL_FEE, savingsRequest.getAmount(),
           savingsRequest.getPlatformFeeAmount(), reference);
     }
-    savingsRequest.resolve(request.status());
+    savingsRequest.resolve(request.status(), request.reason());
     savingsRequestRepository.save(savingsRequest);
+    notifyWithdrawalDecision(savingsRequest);
 
     auditLogService.log(
         access.caller().getId(),
@@ -459,6 +473,178 @@ public class SavingsSelfServiceController {
             savingsRequest.getSavingsTypeId() == null
                 ? "Total Savings"
                 : typeNames.getOrDefault(savingsRequest.getSavingsTypeId(), "Unknown type")));
+  }
+
+  /** Tells the member their withdrawal was approved (and what reached their bank) or declined. */
+  private void notifyWithdrawalDecision(SavingsRequest savingsRequest) {
+    BigDecimal paid =
+        savingsRequest.getNetAmount() != null ? savingsRequest.getNetAmount() : savingsRequest.getAmount();
+    if ("Approved".equals(savingsRequest.getStatus())) {
+      notificationService.notify(
+          savingsRequest.getMemberId(),
+          "SAVINGS_WITHDRAWAL_APPROVED",
+          "Your withdrawal was approved",
+          "Your withdrawal of " + naira(savingsRequest.getAmount()) + " was approved. "
+              + naira(paid) + " has been sent to your bank account.",
+          "/savings");
+    } else {
+      String reason = savingsRequest.getDeclineReason();
+      notificationService.notify(
+          savingsRequest.getMemberId(),
+          "SAVINGS_WITHDRAWAL_DECLINED",
+          "Your withdrawal was declined",
+          "Your withdrawal request of " + naira(savingsRequest.getAmount()) + " was declined."
+              + (reason != null ? " Reason: " + reason : "") + " Your savings are unchanged.",
+          "/savings");
+    }
+  }
+
+  private static String naira(BigDecimal amount) {
+    return com.turontechnologies.tcoop.notification.Amounts.naira(amount);
+  }
+
+  /* ─────────────────────────────── Bulk upload ─────────────────────────────── */
+
+  /** One row of a savings bulk upload, as the spreadsheet had it. */
+  public record BulkSavingsRow(
+      Integer row, String memberId, String savingsType, BigDecimal amount, String date) {}
+
+  public record BulkSavingsRequest(
+      @jakarta.validation.constraints.NotNull List<BulkSavingsRow> rows, boolean dryRun) {}
+
+  public record BulkRowError(int row, String message) {}
+
+  public record BulkSavingsLine(
+      int row, String memberId, String memberName, String savingsType, BigDecimal amount,
+      BigDecimal charge, BigDecimal net, java.time.LocalDate date) {}
+
+  public record BulkSavingsResult(
+      boolean dryRun, int imported, BigDecimal totalAmount, List<BulkSavingsLine> lines,
+      List<BulkRowError> errors) {}
+
+  /**
+   * Savings for many members at once — Savings → Bulk upload. Every row is checked first; if any
+   * row is wrong nothing is saved, so a file is never half-imported. {@code dryRun} checks
+   * without saving, for the preview. Each row is recorded like a teller upload (charges apply).
+   */
+  @PostMapping("/api/v1/cooperatives/{id}/savings/bulk")
+  @org.springframework.transaction.annotation.Transactional
+  public ResponseEntity<?> bulkSavings(
+      Authentication authentication,
+      @PathVariable String id,
+      @Valid @RequestBody BulkSavingsRequest request,
+      HttpServletRequest httpRequest) {
+    var access = requireCoopAccess(authentication, id);
+    if (access.error() != null) return access.error();
+    ResponseEntity<?> denied = requireSavingsWrite(access.caller(), id, "Members Savings");
+    if (denied != null) return denied;
+    Cooperative coop = cooperativeRepository.findById(id).orElse(null);
+    if (coop == null) {
+      return ResponseEntity.status(404).body(Map.of("error", "We couldn't find that co-operative"));
+    }
+    if (request.rows().isEmpty()) {
+      return ResponseEntity.badRequest().body(Map.of("error", "The file has no rows to upload"));
+    }
+    if (request.rows().size() > 2000) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Upload at most 2,000 rows at a time"));
+    }
+
+    Map<String, Member> members = new HashMap<>();
+    for (Member m : memberRepository.findAllByCooperativeId(id)) members.put(m.getId().toUpperCase(), m);
+    Map<String, SavingsType> typesByName = new HashMap<>();
+    for (SavingsType t : savingsTypeRepository.findAllByCooperativeIdOrderByCreatedAtAsc(id)) {
+      if ("Active".equals(t.getStatus())) typesByName.put(t.getName().trim().toLowerCase(), t);
+    }
+
+    List<BulkRowError> errors = new java.util.ArrayList<>();
+    List<BulkSavingsLine> lines = new java.util.ArrayList<>();
+    List<Object[]> valid = new java.util.ArrayList<>(); // {Member, SavingsType, amount, date, charge}
+    int index = 0;
+    for (BulkSavingsRow row : request.rows()) {
+      index++;
+      int rowNumber = row.row() != null ? row.row() : index + 1;
+      String memberId = row.memberId() == null ? "" : row.memberId().trim();
+      Member member = members.get(memberId.toUpperCase());
+      if (memberId.isEmpty()) {
+        errors.add(new BulkRowError(rowNumber, "Membership ID is missing"));
+        continue;
+      }
+      if (member == null) {
+        errors.add(new BulkRowError(rowNumber, "No member " + memberId + " in this co-operative"));
+        continue;
+      }
+      String typeName = row.savingsType() == null ? "" : row.savingsType().trim();
+      SavingsType type =
+          typeName.isEmpty() && typesByName.size() == 1
+              ? typesByName.values().iterator().next()
+              : typesByName.get(typeName.toLowerCase());
+      if (type == null) {
+        errors.add(
+            new BulkRowError(
+                rowNumber,
+                typeName.isEmpty()
+                    ? "Savings Type is missing"
+                    : "\"" + typeName + "\" isn't an active savings type in this co-operative"));
+        continue;
+      }
+      if (row.amount() == null || row.amount().signum() <= 0) {
+        errors.add(new BulkRowError(rowNumber, "Amount must be more than zero"));
+        continue;
+      }
+      BigDecimal amount = row.amount().setScale(2, RoundingMode.HALF_UP);
+      java.time.LocalDate date;
+      try {
+        date = row.date() == null || row.date().isBlank()
+            ? java.time.LocalDate.now()
+            : java.time.LocalDate.parse(row.date().trim());
+      } catch (java.time.format.DateTimeParseException e) {
+        errors.add(new BulkRowError(rowNumber, "Date must be written as YYYY-MM-DD"));
+        continue;
+      }
+      if (date.isAfter(java.time.LocalDate.now())) {
+        errors.add(new BulkRowError(rowNumber, "Date can't be in the future"));
+        continue;
+      }
+      BigDecimal charge = savingsChargeFor(coop, platformSettings(), amount);
+      lines.add(
+          new BulkSavingsLine(
+              rowNumber, member.getId(), member.getFullName(), type.getName(), amount, charge,
+              amount.subtract(charge), date));
+      valid.add(new Object[] {member, type, amount, date, charge});
+    }
+
+    BigDecimal total = lines.stream().map(BulkSavingsLine::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    if (request.dryRun() || !errors.isEmpty()) {
+      return ResponseEntity.status(request.dryRun() || errors.isEmpty() ? 200 : 422)
+          .body(new BulkSavingsResult(true, 0, total, lines, errors));
+    }
+
+    String batch = Long.toString(System.currentTimeMillis(), 36).toUpperCase();
+    Map<String, BigDecimal> balances = new HashMap<>();
+    int n = 0;
+    for (Object[] v : valid) {
+      n++;
+      Member member = (Member) v[0];
+      SavingsType type = (SavingsType) v[1];
+      BigDecimal amount = (BigDecimal) v[2];
+      java.time.LocalDate date = (java.time.LocalDate) v[3];
+      BigDecimal net = amount.subtract((BigDecimal) v[4]);
+      BigDecimal balance =
+          balances.computeIfAbsent(member.getId(), memberKey -> savingsRecordRepository.sumByMember(memberKey)).add(net);
+      balances.put(member.getId(), balance);
+      String transactionId = "BULK-" + id + "-" + batch + "-" + n;
+      SavingsRecord record =
+          new SavingsRecord(id, member.getId(), type.getId(), net, balance, "Bulk Upload", transactionId, "Success", null);
+      record.setRecordDate(date);
+      savingsRecordRepository.save(record);
+      platformFees.record(
+          id, member.getId(), PlatformEarning.SAVINGS_CHARGE, amount, PlatformFees.savingsCharge(coop, amount), transactionId);
+    }
+
+    auditLogService.log(
+        access.caller().getId(), access.caller().getRole(), "Savings", "Import",
+        valid.size() + " savings rows", "Success", httpRequest);
+    return ResponseEntity.ok(new BulkSavingsResult(false, valid.size(), total, lines, List.of()));
   }
 
   private BigDecimal feeFor(String type, BigDecimal feeAmount, BigDecimal withdrawalAmount) {
