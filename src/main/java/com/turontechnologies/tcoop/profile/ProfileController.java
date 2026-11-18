@@ -85,14 +85,17 @@ public class ProfileController {
         request.accountName());
     if (request.alternativeId() != null) {
       String altId = request.alternativeId().trim();
-      if (!altId.isEmpty() && member.getCooperativeId() != null) {
-        var clash =
-            memberRepository
-                .findByCooperativeIdAndAlternativeId(member.getCooperativeId(), altId)
-                .filter(existing -> !existing.getId().equals(member.getId()));
-        if (clash.isPresent()) {
+      if (!altId.isEmpty()) {
+        // Used to log in, so it must belong to one person on the whole platform.
+        boolean clash =
+            memberRepository.findAllByAlternativeId(altId).stream()
+                    .anyMatch(existing -> !existing.getId().equals(member.getId()))
+                || memberRepository.findFirstByIdIgnoreCase(altId)
+                    .filter(existing -> !existing.getId().equals(member.getId()))
+                    .isPresent();
+        if (clash) {
           return ResponseEntity.status(409)
-              .body(Map.of("error", "That alternative ID is already used by " + clash.get().getFullName()));
+              .body(Map.of("error", "That alternative ID is already taken. Each alternative ID must be different."));
         }
       }
       member.setAlternativeId(altId);

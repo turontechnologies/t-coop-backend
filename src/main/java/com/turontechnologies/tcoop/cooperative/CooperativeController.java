@@ -361,6 +361,7 @@ public class CooperativeController {
     memberRepository.save(member);
     if (guarantors.rows() != null) guarantorRules.save(member, coop, guarantors.rows());
 
+    boolean welcomeEmailSent = true;
     try {
       emailService.sendMemberWelcomeEmail(
           request.email(),
@@ -369,6 +370,7 @@ public class CooperativeController {
           member.getId(),
           DEFAULT_ADMIN_PASSWORD);
     } catch (EmailDeliveryException e) {
+      welcomeEmailSent = false;
       log.warn(
           "Member {} added to {} but welcome email to {} failed: {}",
           member.getId(),
@@ -393,8 +395,13 @@ public class CooperativeController {
         "Your account is ready. Log in with membership ID " + member.getId() + " to get started.",
         "/profile");
 
-    return ResponseEntity.ok(CoopMemberDto.from(member));
+    return ResponseEntity.ok(new CreatedMember(CoopMemberDto.from(member), welcomeEmailSent));
   }
+
+  /** The new member, plus whether their welcome email (login details) went out — a bulk import
+   * reports how many emails were sent and who to follow up with. */
+  public record CreatedMember(
+      @com.fasterxml.jackson.annotation.JsonUnwrapped CoopMemberDto member, boolean welcomeEmailSent) {}
 
   /** Edits a member's profile — same access rule as addMember: admin only their own co-op,
    * super admin any. Fields the frontend's edit form doesn't show (otherName, gender, phone,
