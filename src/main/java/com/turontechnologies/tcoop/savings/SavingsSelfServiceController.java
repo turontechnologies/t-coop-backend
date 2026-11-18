@@ -262,6 +262,7 @@ public class SavingsSelfServiceController {
   }
 
   @PostMapping("/api/v1/cooperatives/{id}/savings/withdrawals")
+  @org.springframework.transaction.annotation.Transactional
   public ResponseEntity<?> requestWithdrawal(
       Authentication authentication,
       @PathVariable String id,
@@ -284,8 +285,25 @@ public class SavingsSelfServiceController {
     } else {
       available = savingsRecordRepository.sumByMember(member.getId());
     }
-    if (request.amount().compareTo(available) > 0) {
-      return ResponseEntity.status(409).body(Map.of("error", "That amount exceeds your available balance"));
+    // Withdrawals already waiting for a decision are spoken for.
+    final SavingsType scope = type;
+    BigDecimal pending =
+        savingsRequestRepository.findAllByCooperativeIdOrderByRequestedAtDesc(id).stream()
+            .filter(r -> member.getId().equals(r.getMemberId()))
+            .filter(r -> "Pending".equals(r.getStatus()) && "Withdrawal".equals(r.getRequestType()))
+            .filter(r -> scope == null || scope.getId().equals(r.getSavingsTypeId()))
+            .map(SavingsRequest::getAmount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    BigDecimal free = available.subtract(pending).max(BigDecimal.ZERO);
+    if (request.amount().compareTo(free) > 0) {
+      return ResponseEntity.status(409)
+          .body(
+              Map.of(
+                  "error",
+                  pending.signum() > 0
+                      ? "You can withdraw up to " + naira(free) + " — " + naira(pending)
+                          + " is already in a withdrawal request waiting for approval"
+                      : "That amount exceeds your available balance"));
     }
 
     Cooperative coop = cooperativeRepository.findById(id).orElse(null);

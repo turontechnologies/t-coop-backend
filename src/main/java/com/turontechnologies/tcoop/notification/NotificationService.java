@@ -21,13 +21,23 @@ public class NotificationService {
   private final MemberRepository memberRepository;
   private final PushNotificationService pushNotificationService;
 
+  private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(NotificationService.class);
+
+  private final org.springframework.transaction.support.TransactionTemplate separateTransaction;
+
   public NotificationService(
       NotificationRepository notificationRepository,
       MemberRepository memberRepository,
-      PushNotificationService pushNotificationService) {
+      PushNotificationService pushNotificationService,
+      org.springframework.transaction.PlatformTransactionManager transactionManager) {
     this.notificationRepository = notificationRepository;
     this.memberRepository = memberRepository;
     this.pushNotificationService = pushNotificationService;
+    // Each notification is written in its own transaction, so a failed notification can never
+    // undo or block the withdrawal, loan or repayment that triggered it.
+    this.separateTransaction = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    this.separateTransaction.setPropagationBehavior(
+        org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
   }
 
   /** The general-purpose entry point every convenience method below funnels through — every
@@ -41,13 +51,19 @@ public class NotificationService {
       String link,
       String relatedCooperativeId,
       LocalDate relatedExpiresAt) {
-    Notification saved =
-        notificationRepository.save(
-            new Notification(
-                recipientMemberId, type, title, message, link, relatedCooperativeId, relatedExpiresAt));
-    // The badge on the app icon is the member's unread count, including this one.
-    long unread = notificationRepository.countByRecipientMemberIdAndReadFalse(recipientMemberId);
-    pushNotificationService.sendToMember(recipientMemberId, saved.getId(), type, title, message, link, unread);
+    try {
+      Notification saved =
+          separateTransaction.execute(
+              status ->
+                  notificationRepository.save(
+                      new Notification(
+                          recipientMemberId, type, title, message, link, relatedCooperativeId, relatedExpiresAt)));
+      // The badge on the app icon is the member's unread count, including this one.
+      long unread = notificationRepository.countByRecipientMemberIdAndReadFalse(recipientMemberId);
+      pushNotificationService.sendToMember(recipientMemberId, saved.getId(), type, title, message, link, unread);
+    } catch (RuntimeException e) {
+      log.warn("Couldn't notify {} ({}): {}", recipientMemberId, type, e.getMessage());
+    }
   }
 
   public void notify(String recipientMemberId, String type, String title, String message, String link) {
