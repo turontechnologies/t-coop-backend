@@ -1224,17 +1224,31 @@ public class CooperativeController {
     return ResponseEntity.badRequest().body(Map.of("error", message, "field", "guarantors"));
   }
 
-  /** A typed-in alternative ID has to be unique within the co-op (admin included). */
+  /**
+   * An alternative ID can be used to log in, so it must belong to one person only on the whole
+   * platform, and it can't be the same as anyone's membership ID.
+   */
   private ResponseEntity<?> alternativeIdConflict(String cooperativeId, String alternativeId, String selfId) {
     if (alternativeId == null || alternativeId.isBlank()) return null;
-    return memberRepository
-        .findByCooperativeIdAndAlternativeId(cooperativeId, alternativeId.trim())
-        .filter(existing -> !existing.getId().equals(selfId))
-        .<ResponseEntity<?>>map(
-            existing ->
-                ResponseEntity.status(409)
-                    .body(Map.of("error", "That alternative ID is already used by " + existing.getFullName())))
-        .orElse(null);
+    String wanted = alternativeId.trim();
+    var taken =
+        memberRepository.findAllByAlternativeId(wanted).stream()
+            .filter(existing -> !existing.getId().equals(selfId))
+            .findFirst()
+            .orElse(null);
+    if (taken != null) {
+      String who =
+          cooperativeId.equals(taken.getCooperativeId()) ? taken.getFullName() : "a member of another co-operative";
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "The alternative ID \"" + wanted + "\" is already used by " + who + ". Each alternative ID must be different."));
+    }
+    var sameAsMembershipId =
+        memberRepository.findFirstByIdIgnoreCase(wanted).filter(existing -> !existing.getId().equals(selfId));
+    if (sameAsMembershipId.isPresent()) {
+      return ResponseEntity.status(409)
+          .body(Map.of("error", "\"" + wanted + "\" is already someone's membership ID. Choose a different alternative ID."));
+    }
+    return null;
   }
 
   private String adminIdOf(Authentication authentication) {
