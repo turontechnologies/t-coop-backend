@@ -14,6 +14,8 @@ public final class LoanBalances {
 
   /** Repaid so far (principal + interest). */
   public static BigDecimal repaid(LoanRecord loan) {
+    if ("Completed".equals(loan.getStatus())) return loan.getTotalRepayment();
+    if (loan.getAmountRepaid() != null) return loan.getAmountRepaid().min(loan.getTotalRepayment());
     int n = loan.getNumberOfRepayments();
     int made = Math.max(0, loan.getRepaymentsMade());
     if (n <= 0 || made == 0) return BigDecimal.ZERO.setScale(2);
@@ -47,11 +49,34 @@ public final class LoanBalances {
     return Math.max(0, installmentsDue(loan, today) - Math.max(0, loan.getRepaymentsMade()));
   }
 
-  /** What those overdue instalments come to (never more than what's still owed). */
+  /** What's overdue: what should have been paid by now minus what has been (part payments count). */
   public static BigDecimal overdueAmount(LoanRecord loan, java.time.LocalDate today) {
-    int overdue = overdueInstallments(loan, today);
-    if (overdue == 0) return BigDecimal.ZERO.setScale(2);
-    return loan.getMonthlyRepayment().multiply(BigDecimal.valueOf(overdue)).min(outstanding(loan));
+    if (overdueInstallments(loan, today) == 0) return BigDecimal.ZERO.setScale(2);
+    BigDecimal shouldHave = cumulativeAt(loan, installmentsDue(loan, today));
+    return shouldHave.subtract(repaid(loan)).max(BigDecimal.ZERO).min(outstanding(loan));
+  }
+
+  /** What has to have been paid in total once installment {@code k} is cleared. */
+  public static BigDecimal cumulativeAt(LoanRecord loan, int k) {
+    if (k <= 0) return BigDecimal.ZERO.setScale(2);
+    if (k >= loan.getNumberOfRepayments()) return loan.getTotalRepayment();
+    return loan.getMonthlyRepayment().multiply(BigDecimal.valueOf(k)).min(loan.getTotalRepayment());
+  }
+
+  /** How many installments {@code paid} fully covers. The last is only covered by the full total. */
+  public static int installmentsCovered(LoanRecord loan, BigDecimal paid) {
+    int n = loan.getNumberOfRepayments();
+    if (n <= 0) return 0;
+    if (paid.compareTo(loan.getTotalRepayment()) >= 0) return n;
+    if (loan.getMonthlyRepayment().signum() <= 0) return 0;
+    int covered = paid.divide(loan.getMonthlyRepayment(), 0, RoundingMode.DOWN).intValue();
+    return Math.max(0, Math.min(covered, n - 1));
+  }
+
+  /** The Within-loan principal inside {@code paid}: the loan's principal share of every naira repaid. */
+  public static BigDecimal principalIn(LoanRecord loan, BigDecimal paid) {
+    if (loan.getTotalRepayment().signum() <= 0) return BigDecimal.ZERO.setScale(2);
+    return paid.multiply(loan.getAmount()).divide(loan.getTotalRepayment(), 2, RoundingMode.HALF_UP);
   }
 
   /** When the next unpaid instalment falls due; null when nothing is left to pay. */
@@ -71,8 +96,6 @@ public final class LoanBalances {
   /** The principal still owed on a running loan (its share of each instalment that's left). */
   public static BigDecimal principalOwed(LoanRecord loan) {
     if (!"Active".equals(loan.getStatus())) return BigDecimal.ZERO.setScale(2);
-    int n = Math.max(1, loan.getNumberOfRepayments());
-    int left = Math.max(0, n - Math.max(0, loan.getRepaymentsMade()));
-    return loan.getAmount().multiply(BigDecimal.valueOf(left)).divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP);
+    return loan.getAmount().subtract(principalIn(loan, repaid(loan))).max(BigDecimal.ZERO);
   }
 }

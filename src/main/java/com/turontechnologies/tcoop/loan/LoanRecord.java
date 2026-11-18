@@ -299,6 +299,28 @@ public class LoanRecord {
     this.repaymentsMade++;
   }
 
+  /** Everything repaid so far (V58). Null on a loan that predates it and was never repaid. */
+  @Column(name = "amount_repaid")
+  private BigDecimal amountRepaid;
+
+  public BigDecimal getAmountRepaid() {
+    return amountRepaid;
+  }
+
+  /**
+   * Records a payment of any size: adds it to what's been repaid, works out how many
+   * installments are now fully covered, and completes the loan once the total is reached.
+   */
+  public void applyRepayment(BigDecimal paidBefore, BigDecimal amount) {
+    BigDecimal paid = paidBefore.add(amount);
+    this.amountRepaid = paid;
+    this.repaymentsMade = LoanBalances.installmentsCovered(this, paid);
+    if (paid.compareTo(totalRepayment) >= 0) {
+      this.repaymentsMade = numberOfRepayments;
+      this.status = "Completed";
+    }
+  }
+
   public void setGuarantorAcceptedAt(LocalDateTime guarantorAcceptedAt) {
     this.guarantorAcceptedAt = guarantorAcceptedAt;
   }

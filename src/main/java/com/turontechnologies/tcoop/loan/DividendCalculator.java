@@ -48,10 +48,12 @@ public final class DividendCalculator {
   public static BigDecimal interestEarned(Iterable<LoanRecord> loans) {
     BigDecimal total = BigDecimal.ZERO;
     for (LoanRecord loan : loans) {
-      if (loan.getNumberOfRepayments() <= 0 || loan.getRepaymentsMade() <= 0) continue;
+      if (loan.getTotalRepayment().signum() <= 0) continue;
+      BigDecimal repaid = LoanBalances.repaid(loan);
+      if (repaid.signum() <= 0) continue;
+      // Interest earned in proportion to what's been repaid, part payments included.
       BigDecimal interest = loan.getTotalRepayment().subtract(loan.getAmount());
-      int paid = Math.min(loan.getRepaymentsMade(), loan.getNumberOfRepayments());
-      total = total.add(interest.multiply(BigDecimal.valueOf(paid)).divide(BigDecimal.valueOf(loan.getNumberOfRepayments()), 2, RoundingMode.HALF_UP));
+      total = total.add(interest.multiply(repaid).divide(loan.getTotalRepayment(), 2, RoundingMode.HALF_UP));
     }
     return total;
   }
