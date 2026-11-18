@@ -157,6 +157,33 @@ public class SavingsRequest {
         "Declined".equals(status) && reason != null && !reason.isBlank() ? reason.trim() : null;
   }
 
+  @Column(name = "payout_method")
+  private String payoutMethod;
+
+  @Column(name = "payout_reference")
+  private String payoutReference;
+
+  @Column(name = "payout_receipt_url")
+  private String payoutReceiptUrl;
+
+  public void setPayout(String method, String reference, String receiptUrl) {
+    this.payoutMethod = method;
+    this.payoutReference = reference;
+    this.payoutReceiptUrl = receiptUrl;
+  }
+
+  public String getPayoutMethod() {
+    return payoutMethod;
+  }
+
+  public String getPayoutReference() {
+    return payoutReference;
+  }
+
+  public String getPayoutReceiptUrl() {
+    return payoutReceiptUrl;
+  }
+
   @Column(name = "decline_reason")
   private String declineReason;
 

@@ -797,6 +797,10 @@ public class LoanSelfServiceController {
             .body(Map.of("error", transfer.message() != null ? transfer.message() : "The payout didn't go through."));
       }
       transferStatus = transfer.status();
+    } else if ("Cash".equals(request.method())) {
+      // Paid in cash at the office; a signed receipt is welcome but optional.
+      reference = "cash-" + (notBlank(request.transferReference()) ? request.transferReference().trim() : record.getId().toString().substring(0, 8));
+      transferStatus = "Cash";
     } else if ("Transfer".equals(request.method())) {
       // The co-op already sent the money from its own bank: we only record it, with the receipt.
       if (!notBlank(request.receiptUrl())) {
@@ -815,10 +819,12 @@ public class LoanSelfServiceController {
     // A cheque's photo and number, or a bank transfer's receipt and reference, share these columns.
     boolean cheque = "Cheque".equals(request.method());
     boolean bankTransfer = "Transfer".equals(request.method());
-    String proofUrl = cheque ? request.chequeUrl() : bankTransfer ? request.receiptUrl() : null;
+    boolean cash = "Cash".equals(request.method());
+    String proofUrl =
+        cheque ? request.chequeUrl() : bankTransfer || (cash && notBlank(request.receiptUrl())) ? request.receiptUrl() : null;
     String proofNumber =
         cheque && notBlank(request.chequeNumber()) ? request.chequeNumber().trim()
-            : bankTransfer && notBlank(request.transferReference()) ? request.transferReference().trim()
+            : (bankTransfer || cash) && notBlank(request.transferReference()) ? request.transferReference().trim()
             : null;
     record.markDisbursed(reference, transferStatus, net);
     record.setDisbursementDetails(request.method(), proofUrl, proofNumber, caller.getFullName());
@@ -839,7 +845,7 @@ public class LoanSelfServiceController {
         record,
         "A loan you guaranteed was paid out",
         applicantName + "'s " + typeName + " loan was paid out: " + naira(net)
-            + (cheque ? " by cheque" : bankTransfer ? " by bank transfer" : "") + ". It's repaid over "
+            + (cheque ? " by cheque" : bankTransfer ? " by bank transfer" : cash ? " in cash" : "") + ". It's repaid over "
             + record.getDurationMonths() + " month" + (record.getDurationMonths() == 1 ? "" : "s") + ".");
     if (applicant != null) {
       notificationService.notify(
@@ -850,6 +856,8 @@ public class LoanSelfServiceController {
               ? "Your " + typeName + " loan of " + naira(net) + " has been paid by cheque."
               : bankTransfer
               ? "Your " + typeName + " loan of " + naira(net) + " was paid to you by bank transfer."
+              : cash
+              ? "Your " + typeName + " loan of " + naira(net) + " was paid to you in cash."
               : "Your " + typeName + " loan was paid out: " + naira(net) + " has been sent to your bank account.",
           "/loans/" + record.getId());
     }
@@ -862,7 +870,9 @@ public class LoanSelfServiceController {
   /** Who acts on a step, and whether they're covering for the committee member. */
   private record Actor(Member member, boolean covering) {
     String label(Step step) {
-      return covering ? "Admin (covering for " + step.title() + ")" : step.title();
+      if (!covering) return step.title();
+      String who = "admin".equals(member.getRole()) ? "Admin" : member.getFullName();
+      return who + " (covering for " + step.title() + ")";
     }
   }
 
@@ -876,8 +886,17 @@ public class LoanSelfServiceController {
     if (!isPartyTo(holder.getId(), record)) return new Actor(holder, false);
     Member admin = memberRepository.findById(record.getCooperativeId()).orElse(null);
     if (admin != null && !isPartyTo(admin.getId(), record)) return new Actor(admin, true);
+    // The admin is the borrower or a guarantor too: another committee member who isn't covers,
+    // so nobody ever approves a loan they borrowed (or stand behind) and the loan never gets stuck.
+    for (Step other : loanCommittee.stepsOf(record.getCooperativeId())) {
+      if (!isPartyTo(other.member().getId(), record)) return new Actor(other.member(), true);
+    }
+    // Everyone is a party (a tiny co-op): never the borrower, but a guarantor may act.
     if (!holder.getId().equals(record.getMemberId())) return new Actor(holder, false);
     if (admin != null && !admin.getId().equals(record.getMemberId())) return new Actor(admin, true);
+    for (Step other : loanCommittee.stepsOf(record.getCooperativeId())) {
+      if (!other.member().getId().equals(record.getMemberId())) return new Actor(other.member(), true);
+    }
     return null;
   }
 

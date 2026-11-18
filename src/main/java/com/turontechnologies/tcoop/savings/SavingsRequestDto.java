@@ -18,7 +18,11 @@ public record SavingsRequestDto(
     BigDecimal netAmount,
     LocalDateTime requestedAt,
     LocalDateTime resolvedAt,
-    String declineReason) {
+    String declineReason,
+    /** How an approved withdrawal was paid: Online, Transfer, Cheque or Cash. */
+    String payoutMethod,
+    String payoutReference,
+    String payoutReceiptUrl) {
 
   public static SavingsRequestDto from(SavingsRequest request, String memberName, String savingsTypeName) {
     return new SavingsRequestDto(
@@ -35,6 +39,9 @@ public record SavingsRequestDto(
         request.getNetAmount(),
         request.getRequestedAt(),
         request.getResolvedAt(),
-        request.getDeclineReason());
+        request.getDeclineReason(),
+        request.getPayoutMethod(),
+        request.getPayoutReference(),
+        request.getPayoutReceiptUrl());
   }
 }

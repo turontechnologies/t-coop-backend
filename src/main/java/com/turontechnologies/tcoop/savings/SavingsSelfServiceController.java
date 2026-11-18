@@ -399,7 +399,42 @@ public class SavingsSelfServiceController {
       return ResponseEntity.status(409).body(Map.of("error", "Only withdrawal requests can be decided here"));
     }
 
-    if ("Approved".equals(request.status())) {
+    String payoutMethod = request.method() == null || request.method().isBlank() ? "Online" : request.method();
+    if ("Approved".equals(request.status()) && !"Online".equals(payoutMethod)) {
+      // The co-op already paid the member itself (bank transfer, cheque or cash): record it, with proof.
+      String receipt = request.receiptUrl() == null ? "" : request.receiptUrl().trim();
+      if (!"Cash".equals(payoutMethod) && receipt.isEmpty()) {
+        return ResponseEntity.badRequest()
+            .body(Map.of("error", "Upload the " + ("Cheque".equals(payoutMethod) ? "cheque" : "transfer receipt") + " before approving."));
+      }
+      if (!receipt.isEmpty() && !receipt.startsWith("https://") && !receipt.startsWith("http://")) {
+        return ResponseEntity.badRequest().body(Map.of("error", "That upload didn't work. Please upload it again."));
+      }
+      BigDecimal available =
+          savingsRequest.getSavingsTypeId() != null
+              ? savingsRecordRepository.sumByMemberAndSavingsType(savingsRequest.getMemberId(), savingsRequest.getSavingsTypeId())
+              : savingsRecordRepository.sumByMember(savingsRequest.getMemberId());
+      if (savingsRequest.getAmount().compareTo(available) > 0) {
+        return ResponseEntity.status(409)
+            .body(Map.of("error", "The member's savings no longer cover this withdrawal. Decline it instead."));
+      }
+      String reference = request.reference() == null || request.reference().isBlank() ? null : request.reference().trim();
+      String transactionId =
+          "wd-" + savingsRequest.getId().toString().toLowerCase().substring(0, 8) + (reference != null ? "-" + reference : "");
+      BigDecimal balanceAfter =
+          savingsRecordRepository.sumByMember(savingsRequest.getMemberId()).subtract(savingsRequest.getAmount());
+      savingsRecordRepository.save(
+          new SavingsRecord(
+              id, savingsRequest.getMemberId(), savingsRequest.getSavingsTypeId(), savingsRequest.getAmount().negate(),
+              balanceAfter, "Transfer".equals(payoutMethod) ? "Bank Transfer" : payoutMethod,
+              transactionId.length() > 100 ? transactionId.substring(0, 100) : transactionId, "Success",
+              receipt.isEmpty() ? null : receipt));
+      platformFees.record(
+          id, savingsRequest.getMemberId(), PlatformEarning.WITHDRAWAL_FEE, savingsRequest.getAmount(),
+          savingsRequest.getPlatformFeeAmount(), transactionId);
+      savingsRequest.setPayout(payoutMethod, reference, receipt.isEmpty() ? null : receipt);
+    } else if ("Approved".equals(request.status())) {
+      savingsRequest.setPayout("Online", null, null);
       // Pay the member out before recording anything — same rule as loan disbursement: the
       // withdrawal only counts as approved once Paystack has actually accepted the transfer.
       Member payee = memberRepository.findById(savingsRequest.getMemberId()).orElse(null);
@@ -485,7 +520,12 @@ public class SavingsSelfServiceController {
           "SAVINGS_WITHDRAWAL_APPROVED",
           "Your withdrawal was approved",
           "Your withdrawal of " + naira(savingsRequest.getAmount()) + " was approved. "
-              + naira(paid) + " has been sent to your bank account.",
+              + naira(paid) + switch (savingsRequest.getPayoutMethod() == null ? "Online" : savingsRequest.getPayoutMethod()) {
+                case "Transfer" -> " was paid to you by bank transfer.";
+                case "Cheque" -> " was paid to you by cheque.";
+                case "Cash" -> " was paid to you in cash.";
+                default -> " has been sent to your bank account.";
+              },
           "/savings");
     } else {
       String reason = savingsRequest.getDeclineReason();

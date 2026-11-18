@@ -30,7 +30,7 @@ public final class LoanOfferRequests {
    * transfer receipt ({@code receiptUrl}) and, optionally, its reference.
    */
   public record Disburse(
-      @NotBlank @Pattern(regexp = "Online|Cheque|Transfer", message = "Choose online, cheque or bank transfer")
+      @NotBlank @Pattern(regexp = "Online|Cheque|Transfer|Cash", message = "Choose online, cheque, bank transfer or cash")
           String method,
       @Size(max = 500) String chequeUrl,
       @Size(max = 30) String chequeNumber,
