@@ -352,6 +352,7 @@ public class LoanRecord {
     this.disbursementMethod = "Import";
     this.repaymentsMade = repaymentsMade;
     this.status = status;
+    this.amountRepaid = LoanBalances.cumulativeAt(this, repaymentsMade);
   }
 
   public String getLoanMode() {
