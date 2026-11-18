@@ -58,7 +58,9 @@ public record LoanRecordDto(
     /** Instalments past their due date and unpaid, what they come to, and the next due date. */
     int overdueInstallments,
     BigDecimal overdueAmount,
-    LocalDate nextDueDate) {
+    LocalDate nextDueDate,
+    /** How much of the schedule is paid, in months (part payments count, e.g. 1.5). */
+    BigDecimal monthsPaid) {
 
   public record GuarantorDto(
       String memberId, String name, String status, String documentUrl, LocalDateTime respondedAt) {
@@ -130,6 +132,7 @@ public record LoanRecordDto(
         LoanBalances.outstanding(record),
         LoanBalances.overdueInstallments(record, LocalDate.now()),
         LoanBalances.overdueAmount(record, LocalDate.now()),
-        LoanBalances.nextDueDate(record));
+        LoanBalances.nextDueDate(record),
+        LoanRepaymentController.monthsCovered(record, BigDecimal.ZERO, LoanBalances.repaid(record)));
   }
 }

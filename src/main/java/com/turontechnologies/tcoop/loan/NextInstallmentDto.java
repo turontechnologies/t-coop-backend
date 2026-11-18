@@ -3,9 +3,11 @@ package com.turontechnologies.tcoop.loan;
 import java.math.BigDecimal;
 
 /**
- * What's due next. {@code amount} covers {@code count} installments (1 unless more were asked
- * for); {@code remainingInstallments} is how many are left on the loan, and
- * {@code pendingClaim} is true while a bank-transfer repayment is waiting for the co-op to confirm.
+ * Where a loan stands, for the repay screens. {@code installmentAmount} finishes the current
+ * installment (less than a full month when part of it is already paid); {@code amount} covers
+ * {@code count} installments. {@code monthlyRepayment}, {@code amountRepaid},
+ * {@code outstanding} and {@code totalRepayment} let a screen show how much of the schedule any
+ * typed amount pays (half a month, a month and a half, …).
  */
 public record NextInstallmentDto(
     int installmentNumber,
@@ -13,4 +15,9 @@ public record NextInstallmentDto(
     int count,
     int remainingInstallments,
     BigDecimal installmentAmount,
-    boolean pendingClaim) {}
+    boolean pendingClaim,
+    BigDecimal monthlyRepayment,
+    BigDecimal amountRepaid,
+    BigDecimal outstanding,
+    BigDecimal totalRepayment,
+    int numberOfRepayments) {}
