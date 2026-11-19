@@ -35,8 +35,12 @@ public class CoopUserController {
   private final CoopRoleRepository coopRoleRepository;
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
+  private final com.turontechnologies.tcoop.auth.EmailService emailService;
+  private final com.turontechnologies.tcoop.cooperative.CooperativeRepository cooperativeRepository;
 
   public CoopUserController(
+      com.turontechnologies.tcoop.auth.EmailService emailService,
+      com.turontechnologies.tcoop.cooperative.CooperativeRepository cooperativeRepository,
       MemberRepository memberRepository,
       CoopRoleRepository coopRoleRepository,
       AuditLogService auditLogService,
@@ -45,6 +49,8 @@ public class CoopUserController {
     this.coopRoleRepository = coopRoleRepository;
     this.auditLogService = auditLogService;
     this.notificationService = notificationService;
+    this.emailService = emailService;
+    this.cooperativeRepository = cooperativeRepository;
   }
 
   @GetMapping("/api/v1/cooperatives/{id}/users")
@@ -117,6 +123,13 @@ public class CoopUserController {
         "You now have \"" + role.getName() + "\" access. Log in again to see it reflected.",
         "/dashboard");
 
+    sendRoleEmail(
+        member,
+        wasAlreadyStaff ? "Your role in " + coopName(id) + " has changed" : "You have a new role in " + coopName(id),
+        "Your role is now: " + role.getName(),
+        "you have been given the \"" + role.getName() + "\" role. You can now see and do more in the app. "
+            + "Your Membership ID and password have not changed. Log out and log in again to see it.");
+
     logUpdate(authentication, wasAlreadyStaff ? "Update" : "Create", member.getFullName() + " -> " + role.getName(), httpRequest);
     return ResponseEntity.ok(CoopUserDto.from(member, role.getName()));
   }
@@ -147,6 +160,13 @@ public class CoopUserController {
         "Your role was removed",
         "You no longer have staff access. You're still a member of this co-operative.",
         "/dashboard");
+
+    sendRoleEmail(
+        member,
+        "Your role in " + coopName(id) + " was removed",
+        "You are now a regular member",
+        "your staff role has been taken away, so you are back to being a regular member. Your savings, loans "
+            + "and other records are still yours, and your Membership ID and password have not changed.");
 
     logUpdate(authentication, "Delete", member.getFullName(), httpRequest);
     return ResponseEntity.ok(Map.of("message", "Role removed"));
@@ -195,5 +215,21 @@ public class CoopUserController {
         null,
         ResponseEntity.status(403)
             .body(Map.of("error", "You can only manage your own co-operative's users")));
+  }
+
+  private String coopName(String cooperativeId) {
+    return cooperativeRepository.findById(cooperativeId).map(c -> c.getName()).orElse("your co-operative");
+  }
+
+  /** Same ID, same password — just an email so the person knows their role changed. */
+  private void sendRoleEmail(Member member, String subject, String heading, String message) {
+    if (member.getEmail() == null || member.getEmail().isBlank()) return;
+    try {
+      emailService.sendAccountChangeEmail(
+          member.getEmail(), member.getFullName(), subject, heading, message,
+          java.util.Map.of("Your login ID (unchanged)", member.getId()));
+    } catch (RuntimeException e) {
+      // The role change already happened; a failed email shouldn't undo it.
+    }
   }
 }

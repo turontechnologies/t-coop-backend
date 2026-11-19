@@ -74,6 +74,7 @@ public class CooperativeController {
   private final PlatformSettingsRepository platformSettingsRepository;
   private final PasswordEncoder passwordEncoder;
   private final EmailService emailService;
+  private final com.turontechnologies.tcoop.member.MemberRecordMover memberRecordMover;
   private final AuditLogService auditLogService;
   private final NotificationService notificationService;
   private final CoopOffices coopOffices;
@@ -91,6 +92,7 @@ public class CooperativeController {
       PlatformSettingsRepository platformSettingsRepository,
       PasswordEncoder passwordEncoder,
       EmailService emailService,
+      com.turontechnologies.tcoop.member.MemberRecordMover memberRecordMover,
       AuditLogService auditLogService,
       NotificationService notificationService,
       CoopOffices coopOffices,
@@ -106,6 +108,7 @@ public class CooperativeController {
     this.platformSettingsRepository = platformSettingsRepository;
     this.passwordEncoder = passwordEncoder;
     this.emailService = emailService;
+    this.memberRecordMover = memberRecordMover;
     this.auditLogService = auditLogService;
     this.notificationService = notificationService;
     this.coopOffices = coopOffices;
@@ -988,7 +991,8 @@ public class CooperativeController {
         promotedMember == null ? null : promotedMember.getBankCode(),
         promotedMember == null ? null : promotedMember.getAccountNumber(),
         promotedMember == null ? null : promotedMember.getAccountName());
-    outgoingAdmin.changePassword(passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD));
+    String startingPassword = startingPasswordFor(id);
+    outgoingAdmin.changePassword(passwordEncoder.encode(startingPassword));
     // Flushed immediately (not just save()'d) so this UPDATE — freeing up oldEmail — actually
     // reaches the database before the INSERT below tries to reuse it. See the comment above.
     memberRepository.saveAndFlush(outgoingAdmin);
@@ -997,7 +1001,7 @@ public class CooperativeController {
     String newMemberId =
         nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
     Member outgoingAsMember =
-        new Member(newMemberId, id, "member", oldPasswordHash, oldFirstName, oldLastName, oldEmail);
+        new Member(newMemberId, id, "member", passwordEncoder.encode(startingPassword), oldFirstName, oldLastName, oldEmail);
     outgoingAsMember.updateProfile(
         oldFirstName,
         oldLastName,
@@ -1045,29 +1049,30 @@ public class CooperativeController {
     cooperativeRepository.save(coop);
 
     try {
-      emailService.sendAdminWelcomeEmail(
+      emailService.sendAccountChangeEmail(
           request.newEmail(),
           request.newFirstName() + " " + request.newLastName(),
-          coop.getName(),
-          coop.getId(),
-          DEFAULT_ADMIN_PASSWORD);
+          "You are now the admin of " + coop.getName(),
+          "You are now the admin of " + coop.getName(),
+          (promotedMember != null
+                  ? "you have been made the admin. Your savings, loans and other records are still yours. "
+                  : "you have been made the admin. ")
+              + "From now on, log in with the co-operative's ID and the password below, then change your password in Settings.",
+          loginDetails("Your login ID", coop.getId(), startingPassword));
     } catch (EmailDeliveryException e) {
-      log.warn(
-          "Admin transferred for {} but welcome email to {} failed: {}", coop.getId(), request.newEmail(), e.getMessage());
+      log.warn("Admin transferred for {} but email to {} failed: {}", coop.getId(), request.newEmail(), e.getMessage());
     }
     try {
-      emailService.sendMemberWelcomeEmail(
+      emailService.sendAccountChangeEmail(
           outgoingAsMember.getEmail(),
           outgoingAsMember.getFullName(),
-          coop.getName(),
-          outgoingAsMember.getId(),
-          DEFAULT_ADMIN_PASSWORD);
+          "You are now a member of " + coop.getName(),
+          "You are now a member of " + coop.getName(),
+          "you are no longer the admin. You are now a member with a new Membership ID. Your savings, loans and "
+              + "other records came with you. Log in with the details below, then change your password in Settings.",
+          loginDetails("Your new Membership ID", outgoingAsMember.getId(), startingPassword));
     } catch (EmailDeliveryException e) {
-      log.warn(
-          "Outgoing admin for {} moved to member {} but notice email failed: {}",
-          coop.getId(),
-          outgoingAsMember.getId(),
-          e.getMessage());
+      log.warn("Outgoing admin for {} moved to member {} but email failed: {}", coop.getId(), outgoingAsMember.getId(), e.getMessage());
     }
 
     auditLogService.log(
@@ -1084,7 +1089,7 @@ public class CooperativeController {
         "MEMBER_ADDED",
         "You're now a member of " + coop.getName(),
         "You've moved from co-operative admin to a regular member, with a new membership ID: "
-            + outgoingAsMember.getId() + ". Your password stays the same.",
+            + outgoingAsMember.getId() + ". Check your email for your new password.",
         "/profile");
 
     notificationService.notifyAllSuperAdmins(
@@ -1231,6 +1236,13 @@ public class CooperativeController {
     return ResponseEntity.badRequest().body(Map.of("error", message, "field", "guarantors"));
   }
 
+  private static java.util.Map<String, String> loginDetails(String idLabel, String id, String password) {
+    java.util.Map<String, String> details = new java.util.LinkedHashMap<>();
+    details.put(idLabel, id);
+    details.put("Your password", password);
+    return details;
+  }
+
   /** The password a new member of this co-op starts with: the admin's choice, or the platform's. */
   private String startingPasswordFor(String cooperativeId) {
     return cooperativeRepository
@@ -1301,8 +1313,7 @@ public class CooperativeController {
    * where a real person's own id changes but their financial history shouldn't stay behind
    * attached to whoever (or whatever role) now holds the id they used to have. */
   private void reassignRecords(String oldMemberId, String newMemberId) {
-    savingsRecordRepository.reassignMember(oldMemberId, newMemberId);
-    loanRecordRepository.reassignMember(oldMemberId, newMemberId);
+    memberRecordMover.move(oldMemberId, newMemberId);
   }
 
   /** Retires a member row being merged into the admin identity during transferAdmin — kept, not

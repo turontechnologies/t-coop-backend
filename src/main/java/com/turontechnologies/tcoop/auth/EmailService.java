@@ -131,6 +131,39 @@ public class EmailService {
         body);
   }
 
+  /**
+   * "Something about your account changed": a role given or taken away, or an admin handover.
+   * {@code details} are shown as labelled boxes (e.g. "Your login ID" → "MB-0012").
+   */
+  @Async
+  public void sendAccountChangeEmail(
+      String toEmail,
+      String recipientName,
+      String subject,
+      String heading,
+      String message,
+      java.util.Map<String, String> details) {
+    StringBuilder boxes = new StringBuilder();
+    if (details != null && !details.isEmpty()) {
+      boxes.append("<table role=\"presentation\" width=\"100%\" style=\"margin:0 0 20px;border-collapse:collapse;\">");
+      for (var entry : details.entrySet()) {
+        boxes.append("<tr><td style=\"padding:12px 16px;background:#ecfdf5;border:1px solid #a7f3d0;\">")
+            .append("<p style=\"margin:0;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;\">")
+            .append(escapeHtml(entry.getKey()))
+            .append("</p><p style=\"margin:2px 0 0;color:#065f46;font-size:16px;font-weight:700;font-family:monospace;\">")
+            .append(escapeHtml(entry.getValue()))
+            .append("</p></td></tr>");
+      }
+      boxes.append("</table>");
+    }
+    String body =
+        "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">" + escapeHtml(heading) + "</h1>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">Hi "
+            + escapeHtml(firstNameOf(recipientName)) + ", " + escapeHtml(message) + "</p>"
+            + boxes;
+    send(toEmail, subject, body);
+  }
+
   @Async
   public void sendMemberWelcomeEmail(
       String toEmail,
