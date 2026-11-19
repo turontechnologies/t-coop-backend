@@ -85,6 +85,36 @@ public class EmailService {
     send(toEmail, "Your one-time password for T-Cooperative", body);
   }
 
+  /**
+   * The code that proves an applicant owns their email address. Sent straight away (not in the
+   * background) so the form can tell them at once if it didn't go.
+   */
+  public void sendApplicationCodeEmail(String toEmail, String recipientName, String cooperativeName, String code) {
+    StringBuilder digits = new StringBuilder();
+    for (char digit : code.toCharArray()) {
+      digits.append(
+          "<td style=\"width:40px;height:40px;text-align:center;vertical-align:middle;"
+              + "border:1px solid #a7f3d0;background:#ecfdf5;border-radius:8px;"
+              + "font-size:20px;font-weight:700;color:#065f46;font-family:monospace;\">"
+              + digit
+              + "</td><td style=\"width:8px;\"></td>");
+    }
+    String body =
+        "<p style=\"margin:0 0 4px;color:#047857;font-size:12px;font-weight:700;"
+            + "letter-spacing:0.08em;text-transform:uppercase;\">Joining " + escapeHtml(cooperativeName) + "</p>"
+            + "<h1 style=\"margin:0 0 16px;color:#0f172a;font-size:19px;font-weight:700;\">"
+            + "Your code to continue</h1>"
+            + "<p style=\"margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;\">"
+            + "Hi " + escapeHtml(firstNameOf(recipientName)) + ", type this code on the application form "
+            + "to show this email address is yours.</p>"
+            + "<table role=\"presentation\" align=\"center\" style=\"margin:0 auto 20px;\"><tr>"
+            + digits
+            + "</tr></table>"
+            + "<p style=\"margin:0 0 20px;text-align:center;color:#64748b;font-size:12px;\">"
+            + "The code works for 10 minutes. If you didn't ask to join, you can ignore this email.</p>";
+    send(toEmail, "Your code to join " + cooperativeName, body);
+  }
+
   @Async
   public void sendAdminWelcomeEmail(
       String toEmail,

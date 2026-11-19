@@ -23,7 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class CoopDefaultPasswordController {
 
   /** Used when a co-op hasn't chosen its own — must match CooperativeController's default. */
-  static final String PLATFORM_DEFAULT = "admin123";
+  public static final String PLATFORM_DEFAULT = "admin123";
+
+  /** The password a new member of this co-op starts with: the admin's choice, or the platform's. */
+  public static String startingPasswordFor(Cooperative coop) {
+    String own = coop.getDefaultMemberPassword();
+    return own != null && !own.isBlank() ? own : PLATFORM_DEFAULT;
+  }
 
   private final CooperativeRepository cooperativeRepository;
   private final MemberRepository memberRepository;

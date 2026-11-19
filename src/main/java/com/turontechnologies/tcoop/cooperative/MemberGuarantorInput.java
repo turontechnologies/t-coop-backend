@@ -12,7 +12,7 @@ public record MemberGuarantorInput(
     @Size(max = 30, message = "Keep the guarantor's phone under 30 characters") String phone,
     @Size(max = 255, message = "Keep the guarantor's email under 255 characters") String email) {
 
-  boolean fromCoop() {
+  public boolean fromCoop() {
     return memberId != null && !memberId.isBlank();
   }
 }

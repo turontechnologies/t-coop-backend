@@ -146,7 +146,7 @@ public class MemberGuarantorRules {
   }
 
   /** The first rule the list breaks, in the order an admin would fix them; null when it passes. */
-  static String ruleProblem(Cooperative coop, List<Row> rows) {
+  public static String ruleProblem(Cooperative coop, List<Row> rows) {
     int min = Math.max(1, coop.getMinGuarantors());
     long fromCoop = rows.stream().filter(r -> r.guarantorMemberId() != null).count();
     long fromOutside = rows.size() - fromCoop;

@@ -23,6 +23,9 @@ public interface MemberRepository extends JpaRepository<Member, String> {
 
   Optional<Member> findByInviteToken(String inviteToken);
 
+  /** A NIN belongs to one person, so a match anywhere on the platform is worth flagging. */
+  List<Member> findAllByNin(String nin);
+
   long countByRoleIn(List<String> roles);
 
   long countByCooperativeIdAndRoleIn(String cooperativeId, List<String> roles);

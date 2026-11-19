@@ -58,6 +58,9 @@ public class SecurityConfig {
                         "/api/v1/auth/**",
                         "/api/v1/platform-invites/**",
                         "/api/v1/guarantor-invites/**",
+                        // Applying to join a co-op: the applicant has no account yet. Every step
+                        // after the email code needs that application's own private key.
+                        "/api/v1/apply/**",
                         "/error")
                     .permitAll()
                     .anyRequest()

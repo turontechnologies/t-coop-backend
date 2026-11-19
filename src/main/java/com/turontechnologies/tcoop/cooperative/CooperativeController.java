@@ -22,12 +22,9 @@ import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import java.math.BigDecimal;
 import jakarta.validation.Valid;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -551,60 +548,9 @@ public class CooperativeController {
     return ResponseEntity.ok(Map.of("nextId", nextId));
   }
 
-  private static final String NUMERIC_DIGITS = "0123456789";
-  private static final String ALPHA_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  private static final String ALPHANUMERIC_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-  private String digitAlphabetFor(String idType) {
-    return switch (idType == null ? "NUMERIC" : idType) {
-      case "ALPHA" -> ALPHA_DIGITS;
-      case "ALPHANUMERIC" -> ALPHANUMERIC_DIGITS;
-      default -> NUMERIC_DIGITS;
-    };
-  }
-
-  /** Shared by both the co-op-id and member-id generators — parses every existing id matching
-   * {@code PREFIX-<suffix>} (case-insensitive) where {@code <suffix>} is made of characters from
-   * the chosen type's digit alphabet (NUMERIC = 0-9, ALPHA = A-Z, ALPHANUMERIC = 0-9 then A-Z),
-   * decodes each as a base-N number, takes the highest value found, and re-encodes it + 1 back
-   * into that same alphabet, left-padded to {@code padding} characters wide. Switching a co-op's
-   * (or the platform's) id type after ids already exist in a different alphabet just means none
-   * of those old ids match the new pattern — generation starts fresh from 1 in the new scheme,
-   * which is the only sane behavior for a deliberate format change. */
+  /** Shared by the co-op-id and member-id generators — see {@link MemberIdGenerator#next}. */
   private String nextGeneratedId(String prefix, String idType, int padding, List<String> existingIds) {
-    String digits = digitAlphabetFor(idType);
-    int base = digits.length();
-    Pattern pattern =
-        Pattern.compile("^" + Pattern.quote(prefix) + "-?([" + digits + "]+)$", Pattern.CASE_INSENSITIVE);
-    long max =
-        existingIds.stream()
-            .map(pattern::matcher)
-            .filter(Matcher::matches)
-            .map(matcher -> decodeBaseN(matcher.group(1).toUpperCase(), digits, base))
-            .max(Comparator.naturalOrder())
-            .orElse(0L);
-    return prefix + "-" + encodeBaseN(max + 1, digits, base, padding);
-  }
-
-  private long decodeBaseN(String value, String digits, int base) {
-    long result = 0;
-    for (char c : value.toCharArray()) {
-      result = result * base + digits.indexOf(c);
-    }
-    return result;
-  }
-
-  private String encodeBaseN(long value, String digits, int base, int padding) {
-    StringBuilder encoded = new StringBuilder();
-    long remaining = value;
-    do {
-      encoded.append(digits.charAt((int) (remaining % base)));
-      remaining /= base;
-    } while (remaining > 0);
-    while (encoded.length() < padding) {
-      encoded.append(digits.charAt(0));
-    }
-    return encoded.reverse().toString();
+    return MemberIdGenerator.next(prefix, idType, padding, existingIds);
   }
 
   @PostMapping("/api/v1/cooperatives")
