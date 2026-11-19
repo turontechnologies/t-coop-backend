@@ -997,11 +997,31 @@ public class CooperativeController {
     // reaches the database before the INSERT below tries to reuse it. See the comment above.
     memberRepository.saveAndFlush(outgoingAdmin);
 
-    List<String> existingIds = memberRepository.findAllByCooperativeId(id).stream().map(Member::getId).toList();
-    String newMemberId =
-        nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
-    Member outgoingAsMember =
-        new Member(newMemberId, id, "member", passwordEncoder.encode(startingPassword), oldFirstName, oldLastName, oldEmail);
+    // If the outgoing admin was a member before becoming admin, their old Membership ID has been
+    // sleeping (inactive); wake it up so they go back to the ID they know. Otherwise (an admin who
+    // was never a member here) they get a new Membership ID.
+    Member sleeping =
+        coop.getAdminPreviousMemberId() == null
+            ? null
+            : memberRepository
+                .findById(coop.getAdminPreviousMemberId())
+                .filter(previous -> id.equals(previous.getCooperativeId()))
+                .filter(previous -> !"Active".equals(previous.getStatus()))
+                .orElse(null);
+    boolean backToOldId = sleeping != null;
+    Member outgoingAsMember;
+    if (backToOldId) {
+      outgoingAsMember = sleeping;
+      outgoingAsMember.changePassword(passwordEncoder.encode(startingPassword));
+      outgoingAsMember.setStatus("Active");
+      outgoingAsMember.setCoopRoleId(null);
+    } else {
+      List<String> existingIds = memberRepository.findAllByCooperativeId(id).stream().map(Member::getId).toList();
+      String newMemberId =
+          nextGeneratedId(coop.getMemberIdPrefix(), coop.getMemberIdType(), coop.getMemberIdPadding(), existingIds);
+      outgoingAsMember =
+          new Member(newMemberId, id, "member", passwordEncoder.encode(startingPassword), oldFirstName, oldLastName, oldEmail);
+    }
     outgoingAsMember.updateProfile(
         oldFirstName,
         oldLastName,
@@ -1025,7 +1045,7 @@ public class CooperativeController {
         oldBankCode,
         oldAccountNumber,
         oldAccountName);
-    memberRepository.save(outgoingAsMember);
+    memberRepository.saveAndFlush(outgoingAsMember);
 
     // The outgoing admin's own savings/loan history — if they had any while acting as admin —
     // follows them onto their new membership id; otherwise it would silently become the new
@@ -1037,6 +1057,8 @@ public class CooperativeController {
       reassignRecords(promotedMemberOldId, id);
     }
 
+    // The new admin's own Membership ID (if they were a member) now sleeps until they hand over.
+    coop.setAdminPreviousMemberId(promotedMemberOldId);
     coop.updateDetails(
         coop.getName(),
         request.newFirstName() + " " + request.newLastName(),
@@ -1055,7 +1077,9 @@ public class CooperativeController {
           "You are now the admin of " + coop.getName(),
           "You are now the admin of " + coop.getName(),
           (promotedMember != null
-                  ? "you have been made the admin. Your savings, loans and other records are still yours. "
+                  ? "you have been made the admin. Your savings, loans and other records are still yours. Your old "
+                      + "Membership ID (" + promotedMemberOldId + ") is paused while you are admin, and you will go "
+                      + "back to it if you ever hand the admin role over. "
                   : "you have been made the admin. ")
               + "From now on, log in with the co-operative's ID and the password below, then change your password in Settings.",
           loginDetails("Your login ID", coop.getId(), startingPassword));
@@ -1068,9 +1092,13 @@ public class CooperativeController {
           outgoingAsMember.getFullName(),
           "You are now a member of " + coop.getName(),
           "You are now a member of " + coop.getName(),
-          "you are no longer the admin. You are now a member with a new Membership ID. Your savings, loans and "
-              + "other records came with you. Log in with the details below, then change your password in Settings.",
-          loginDetails("Your new Membership ID", outgoingAsMember.getId(), startingPassword));
+          (backToOldId
+                  ? "you are no longer the admin. You are back on your old Membership ID. "
+                  : "you are no longer the admin. You are now a member with a new Membership ID. ")
+              + "Your savings, loans and other records came with you. Log in with the details below, then change "
+              + "your password in Settings.",
+          loginDetails(
+              backToOldId ? "Your Membership ID" : "Your new Membership ID", outgoingAsMember.getId(), startingPassword));
     } catch (EmailDeliveryException e) {
       log.warn("Outgoing admin for {} moved to member {} but email failed: {}", coop.getId(), outgoingAsMember.getId(), e.getMessage());
     }
@@ -1088,8 +1116,10 @@ public class CooperativeController {
         outgoingAsMember.getId(),
         "MEMBER_ADDED",
         "You're now a member of " + coop.getName(),
-        "You've moved from co-operative admin to a regular member, with a new membership ID: "
-            + outgoingAsMember.getId() + ". Check your email for your new password.",
+        (backToOldId
+                ? "You're no longer the admin. You're back on your old Membership ID: "
+                : "You're no longer the admin. Your new Membership ID is ")
+            + outgoingAsMember.getId() + ". Check your email for your password.",
         "/profile");
 
     notificationService.notifyAllSuperAdmins(

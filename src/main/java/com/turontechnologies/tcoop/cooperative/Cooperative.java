@@ -635,4 +635,17 @@ public class Cooperative {
     this.defaultMemberPassword =
         defaultMemberPassword == null || defaultMemberPassword.isBlank() ? null : defaultMemberPassword;
   }
+
+  /** The current admin's own Membership ID from before they became admin (V63), sleeping until
+   * they hand the role over and go back to it. Null when the admin was never a member here. */
+  @Column(name = "admin_previous_member_id")
+  private String adminPreviousMemberId;
+
+  public String getAdminPreviousMemberId() {
+    return adminPreviousMemberId;
+  }
+
+  public void setAdminPreviousMemberId(String adminPreviousMemberId) {
+    this.adminPreviousMemberId = adminPreviousMemberId;
+  }
 }
