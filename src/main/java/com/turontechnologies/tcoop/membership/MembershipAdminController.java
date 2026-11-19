@@ -288,7 +288,9 @@ public class MembershipAdminController {
     Member caller = memberRepository.findById((String) authentication.getPrincipal()).orElse(null);
     if (caller == null) throw new MembershipApplicationService.ApplicationProblem(401, "Member no longer exists");
     if ("super_admin".equals(caller.getRole())) return caller;
-    if (coopPermissions.allows(caller, cooperativeId, module, null, write) && coopPermissions.isStaff(caller, cooperativeId)) {
+    // Joining settings live under Settings → Co-operative Settings.
+    String tab = "Settings".equals(module) ? "Co-operative Settings" : null;
+    if (coopPermissions.allows(caller, cooperativeId, module, tab, write) && coopPermissions.isStaff(caller, cooperativeId)) {
       return caller;
     }
     throw new MembershipApplicationService.ApplicationProblem(403, "Your role doesn't allow this.");
