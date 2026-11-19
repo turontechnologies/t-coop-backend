@@ -58,6 +58,7 @@ public class PublicApplicationController {
   private final MembershipApplicationService service;
   private final MemberGuarantorRules guarantorRules;
   private final CoopGatewayResolver gatewayResolver;
+  private final PaymentGatewayService paymentGatewayService;
   private final EmailService emailService;
   private final PasswordEncoder passwordEncoder;
   private final Cloudinary cloudinary;
@@ -70,9 +71,11 @@ public class PublicApplicationController {
       MembershipApplicationService service,
       MemberGuarantorRules guarantorRules,
       CoopGatewayResolver gatewayResolver,
+      PaymentGatewayService paymentGatewayService,
       EmailService emailService,
       PasswordEncoder passwordEncoder,
       Cloudinary cloudinary) {
+    this.paymentGatewayService = paymentGatewayService;
     this.cooperativeRepository = cooperativeRepository;
     this.memberRepository = memberRepository;
     this.settingsRepository = settingsRepository;
@@ -291,6 +294,37 @@ public class PublicApplicationController {
     }
     String lastInitial = member.getLastName() == null || member.getLastName().isBlank() ? "" : " " + member.getLastName().charAt(0) + ".";
     return ResponseEntity.ok(new GuarantorLookup(member.getId(), member.getFirstName() + lastInitial));
+  }
+
+  /** Nigerian banks, for the bank account part of the form. */
+  @GetMapping("/api/v1/apply/banks")
+  public ResponseEntity<?> banks() {
+    PaymentGatewayService.BankListResult result = paymentGatewayService.listPaystackBanks(service.platformPaystackSecret());
+    if (!result.success()) return ResponseEntity.status(502).body(Map.of("error", "We couldn't load the list of banks."));
+    return ResponseEntity.ok(
+        Map.of("banks", result.banks().stream().map(bank -> Map.of("name", bank.name(), "code", bank.code())).toList()));
+  }
+
+  public record ResolveAccountRequest(
+      @NotBlank(message = "Enter your account number") String accountNumber,
+      @NotBlank(message = "Choose your bank") String bankCode) {}
+
+  /** Shows the applicant the name on the account they typed, so they can see it's right. */
+  @PostMapping("/api/v1/apply/applications/{applicationId}/resolve-account")
+  public ResponseEntity<?> resolveAccount(
+      @PathVariable String applicationId,
+      @RequestHeader(TOKEN_HEADER) String token,
+      @Valid @RequestBody ResolveAccountRequest request) {
+    authorised(applicationId, token, true);
+    if (!request.accountNumber().matches("\\d{10}")) {
+      return ResponseEntity.badRequest().body(Map.of("error", "Your account number must be exactly 10 numbers."));
+    }
+    PaymentGatewayService.BankResolveResult result =
+        paymentGatewayService.resolvePaystackBankAccount(request.accountNumber(), request.bankCode(), service.platformPaystackSecret());
+    if (!result.success()) {
+      return ResponseEntity.status(422).body(Map.of("error", "We couldn't find that account. Check the number and the bank."));
+    }
+    return ResponseEntity.ok(Map.of("accountName", result.accountName()));
   }
 
   /** Last step: everything filled in, then pay (or send, when there's no fee). */

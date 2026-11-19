@@ -13,6 +13,8 @@ import com.turontechnologies.tcoop.savings.SavingsRecord;
 import com.turontechnologies.tcoop.savings.SavingsRecordRepository;
 import com.turontechnologies.tcoop.savings.SavingsType;
 import com.turontechnologies.tcoop.savings.SavingsTypeRepository;
+import com.turontechnologies.tcoop.settings.PlatformSettings;
+import com.turontechnologies.tcoop.settings.PlatformSettingsRepository;
 import com.turontechnologies.tcoop.subscription.PaymentGatewayService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -61,8 +63,10 @@ public class MembershipApplicationService {
   private final NotificationService notificationService;
   private final EmailService emailService;
   private final PasswordEncoder passwordEncoder;
+  private final PlatformSettingsRepository platformSettingsRepository;
 
   public MembershipApplicationService(
+      PlatformSettingsRepository platformSettingsRepository,
       RegistrationSettingsRepository settingsRepository,
       MembershipApplicationRepository applicationRepository,
       ApplicationGuarantorRepository guarantorRepository,
@@ -89,6 +93,7 @@ public class MembershipApplicationService {
     this.notificationService = notificationService;
     this.emailService = emailService;
     this.passwordEncoder = passwordEncoder;
+    this.platformSettingsRepository = platformSettingsRepository;
   }
 
   /** The co-op's settings, or closed defaults when the admin hasn't set them up. */
@@ -184,8 +189,8 @@ public class MembershipApplicationService {
   /** Asks the bank whose account it is (via the co-op's Paystack). Quietly skipped if we can't. */
   public void lookUpBankName(MembershipApplication app) {
     if (app.getAccountNumber() == null || app.getBankCode() == null || app.getBankAccountName() != null) return;
-    String secret = gatewayResolver.payoutSecretKeyFor(app.getCooperativeId()).orElse(null);
-    if (secret == null) return;
+    String secret = gatewayResolver.payoutSecretKeyFor(app.getCooperativeId()).orElseGet(this::platformPaystackSecret);
+    if (secret == null || secret.isBlank()) return;
     try {
       PaymentGatewayService.BankResolveResult result =
           paymentGatewayService.resolvePaystackBankAccount(app.getAccountNumber(), app.getBankCode(), secret);
@@ -368,6 +373,11 @@ public class MembershipApplicationService {
         "we are sorry, " + coop.getName() + " did not approve your application. The reason is below." + money
             + " You can apply again when you are ready.",
         details);
+  }
+
+  /** The platform's Paystack key: only used to read bank lists and account names, never to charge. */
+  public String platformPaystackSecret() {
+    return platformSettingsRepository.findById(1).map(PlatformSettings::getPaystackSecretKey).orElse(null);
   }
 
   /** The savings type the first savings goes into: the admin's choice, else the first active one. */
