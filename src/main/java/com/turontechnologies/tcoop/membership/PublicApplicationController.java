@@ -449,7 +449,7 @@ public class PublicApplicationController {
     MembershipApplication app = findApplication(applicationId);
     if (app.getAccessToken() == null || token == null
         || !java.security.MessageDigest.isEqual(app.getAccessToken().getBytes(), token.getBytes())) {
-      throw new MembershipApplicationService.ApplicationProblem(401, "Please confirm your email again to carry on with this application.");
+      throw new MembershipApplicationService.ApplicationProblem(403, "Please confirm your email again to carry on with this application.");
     }
     if (mustBeDraft && !app.isDraft()) {
       throw new MembershipApplicationService.ApplicationProblem(409, "This application has already been sent, so it can't be changed.");
