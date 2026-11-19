@@ -22,9 +22,22 @@ public record SavingsRequestDto(
     /** How an approved withdrawal was paid: Online, Transfer, Cheque or Cash. */
     String payoutMethod,
     String payoutReference,
-    String payoutReceiptUrl) {
+    String payoutReceiptUrl,
+    /**
+     * Savings before and after. Approved: the real figures when it was paid. Waiting: what the
+     * member has now, and what they'll have once it's approved.
+     */
+    BigDecimal balanceBefore,
+    BigDecimal balanceAfter) {
 
   public static SavingsRequestDto from(SavingsRequest request, String memberName, String savingsTypeName) {
+    return from(request, memberName, savingsTypeName, null);
+  }
+
+  /** {@code currentBalance}: for a waiting request, the member's savings right now. */
+  public static SavingsRequestDto from(
+      SavingsRequest request, String memberName, String savingsTypeName, BigDecimal currentBalance) {
+    boolean waiting = "Pending".equals(request.getStatus()) && currentBalance != null;
     return new SavingsRequestDto(
         request.getId().toString(),
         request.getMemberId(),
@@ -42,6 +55,8 @@ public record SavingsRequestDto(
         request.getDeclineReason(),
         request.getPayoutMethod(),
         request.getPayoutReference(),
-        request.getPayoutReceiptUrl());
+        request.getPayoutReceiptUrl(),
+        waiting ? currentBalance : request.getBalanceBefore(),
+        waiting ? currentBalance.subtract(request.getAmount()) : request.getBalanceAfter());
   }
 }

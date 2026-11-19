@@ -622,4 +622,17 @@ public class Cooperative {
     this.memberGuarantorsFromCoop = "Mix".equals(source) ? fromCoop : 0;
     this.memberGuarantorsFromOutside = "Mix".equals(source) ? fromOutside : 0;
   }
+
+  /** The password new members of this co-op start with (V62); null means the platform default. */
+  @Column(name = "default_member_password")
+  private String defaultMemberPassword;
+
+  public String getDefaultMemberPassword() {
+    return defaultMemberPassword;
+  }
+
+  public void setDefaultMemberPassword(String defaultMemberPassword) {
+    this.defaultMemberPassword =
+        defaultMemberPassword == null || defaultMemberPassword.isBlank() ? null : defaultMemberPassword;
+  }
 }

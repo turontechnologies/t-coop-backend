@@ -184,6 +184,26 @@ public class SavingsRequest {
     return payoutReceiptUrl;
   }
 
+  /** The member's savings just before and just after this withdrawal was paid (V61). */
+  @Column(name = "balance_before")
+  private BigDecimal balanceBefore;
+
+  @Column(name = "balance_after")
+  private BigDecimal balanceAfter;
+
+  public void setBalances(BigDecimal before, BigDecimal after) {
+    this.balanceBefore = before;
+    this.balanceAfter = after;
+  }
+
+  public BigDecimal getBalanceBefore() {
+    return balanceBefore;
+  }
+
+  public BigDecimal getBalanceAfter() {
+    return balanceAfter;
+  }
+
   @Column(name = "decline_reason")
   private String declineReason;
 

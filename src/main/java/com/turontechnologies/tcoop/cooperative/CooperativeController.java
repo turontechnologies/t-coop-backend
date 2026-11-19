@@ -330,7 +330,7 @@ public class CooperativeController {
             request.membershipId(),
             id,
             role,
-            passwordEncoder.encode(DEFAULT_ADMIN_PASSWORD),
+            passwordEncoder.encode(startingPasswordFor(id)),
             request.firstName(),
             request.lastName(),
             request.email());
@@ -368,7 +368,7 @@ public class CooperativeController {
           member.getFullName(),
           cooperativeRepository.findById(id).map(Cooperative::getName).orElse(id),
           member.getId(),
-          DEFAULT_ADMIN_PASSWORD);
+          startingPasswordFor(id));
     } catch (EmailDeliveryException e) {
       welcomeEmailSent = false;
       log.warn(
@@ -1229,6 +1229,15 @@ public class CooperativeController {
   /** A guarantor problem, tagged so the form can show it under the guarantors section. */
   private static ResponseEntity<?> guarantorError(String message) {
     return ResponseEntity.badRequest().body(Map.of("error", message, "field", "guarantors"));
+  }
+
+  /** The password a new member of this co-op starts with: the admin's choice, or the platform's. */
+  private String startingPasswordFor(String cooperativeId) {
+    return cooperativeRepository
+        .findById(cooperativeId)
+        .map(Cooperative::getDefaultMemberPassword)
+        .filter(password -> password != null && !password.isBlank())
+        .orElse(DEFAULT_ADMIN_PASSWORD);
   }
 
   /**

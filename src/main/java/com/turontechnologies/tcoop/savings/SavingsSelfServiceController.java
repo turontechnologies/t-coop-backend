@@ -385,7 +385,8 @@ public class SavingsSelfServiceController {
                         memberNames.getOrDefault(request.getMemberId(), "Unknown member"),
                         request.getSavingsTypeId() == null
                             ? "Total Savings"
-                            : typeNames.getOrDefault(request.getSavingsTypeId(), "Unknown type")))
+                            : typeNames.getOrDefault(request.getSavingsTypeId(), "Unknown type"),
+                        "Pending".equals(request.getStatus()) ? balanceFor(request) : null))
             .toList();
     return ResponseEntity.ok(dtos);
   }
@@ -439,6 +440,7 @@ public class SavingsSelfServiceController {
       String reference = request.reference() == null || request.reference().isBlank() ? null : request.reference().trim();
       String transactionId =
           "wd-" + savingsRequest.getId().toString().toLowerCase().substring(0, 8) + (reference != null ? "-" + reference : "");
+      savingsRequest.setBalances(available, available.subtract(savingsRequest.getAmount()));
       BigDecimal balanceAfter =
           savingsRecordRepository.sumByMember(savingsRequest.getMemberId()).subtract(savingsRequest.getAmount());
       savingsRecordRepository.save(
@@ -486,6 +488,8 @@ public class SavingsSelfServiceController {
             .body(Map.of("error", transfer.message() != null ? transfer.message() : "The payout didn't go through."));
       }
 
+      BigDecimal balanceBefore = balanceFor(savingsRequest);
+      savingsRequest.setBalances(balanceBefore, balanceBefore.subtract(savingsRequest.getAmount()));
       BigDecimal balanceAfter =
           savingsRecordRepository.sumByMember(savingsRequest.getMemberId()).subtract(savingsRequest.getAmount());
       SavingsRecord record =
@@ -528,6 +532,13 @@ public class SavingsSelfServiceController {
                 : typeNames.getOrDefault(savingsRequest.getSavingsTypeId(), "Unknown type")));
   }
 
+  /** The savings a withdrawal comes out of: that savings type's balance, or all of the member's savings. */
+  private BigDecimal balanceFor(SavingsRequest request) {
+    return request.getSavingsTypeId() != null
+        ? savingsRecordRepository.sumByMemberAndSavingsType(request.getMemberId(), request.getSavingsTypeId())
+        : savingsRecordRepository.sumByMember(request.getMemberId());
+  }
+
   /** Tells the member their withdrawal was approved (and what reached their bank) or declined. */
   private void notifyWithdrawalDecision(SavingsRequest savingsRequest) {
     BigDecimal paid =
@@ -543,7 +554,10 @@ public class SavingsSelfServiceController {
                 case "Cheque" -> " was paid to you by cheque.";
                 case "Cash" -> " was paid to you in cash.";
                 default -> " has been sent to your bank account.";
-              },
+              }
+              + (savingsRequest.getBalanceAfter() != null
+                  ? " Your savings are now " + naira(savingsRequest.getBalanceAfter()) + "."
+                  : ""),
           "/savings");
     } else {
       String reason = savingsRequest.getDeclineReason();
