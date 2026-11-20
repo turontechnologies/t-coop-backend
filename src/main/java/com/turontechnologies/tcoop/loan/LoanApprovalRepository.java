@@ -7,4 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface LoanApprovalRepository extends JpaRepository<LoanApproval, UUID> {
 
   List<LoanApproval> findAllByLoanIdOrderByActedAtAsc(UUID loanId);
+
+  /** Every decision on a set of loans, for reports. */
+  List<LoanApproval> findAllByLoanIdIn(java.util.Collection<UUID> loanIds);
 }

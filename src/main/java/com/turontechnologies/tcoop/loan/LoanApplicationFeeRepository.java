@@ -13,4 +13,8 @@ public interface LoanApplicationFeeRepository extends JpaRepository<LoanApplicat
   /** Every paid-but-unused fee of a member (one per loan type at most, in practice). */
   List<LoanApplicationFee> findAllByCooperativeIdAndMemberIdAndStatusOrderByPaidAtAsc(
       String cooperativeId, String memberId, String status);
+
+  /** A co-op's fees in the given statuses (Paid and Used are money received), for reports. */
+  List<LoanApplicationFee> findAllByCooperativeIdAndStatusIn(
+      String cooperativeId, java.util.Collection<String> statuses);
 }
